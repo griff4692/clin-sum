@@ -1,5 +1,9 @@
 # clin-sum
 Abstractive Generation of Discharge Summaries
+# Requirements
+Python3\\
+tensorflow 2.0\\
+torch
 # data
 Download preprocessed (finished-files) data from cnn-dailymail here: https://github.com/JafferWilson/Process-Data-of-CNN-DailyMail
 # paths
