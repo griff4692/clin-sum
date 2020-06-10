@@ -1,4 +1,7 @@
-from multi_news import load as multi_load
+import sys
+sys.path.append('/Users/nihaar/Documents/Spring20/research/abstractive-summarization/code/clin-sum')
+
+from datasets.multi_news import load as multi_load
 
 
 def load_dataset(name='multi_news'):

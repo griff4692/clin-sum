@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from datasets.base import load_dataset
-
+from datasets.multi_news import MultiNewsDataset, Example
 
 class SummarizePipeline(LightningModule):
     def __init__(self, vocab_size):

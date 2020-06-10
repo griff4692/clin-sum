@@ -9,10 +9,14 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 from torch.utils.data import Dataset
 from torchtext.vocab import Vocab
 
-from tokenize_utils import clean
+from datasets.tokenize_utils import clean
+
+import tqdm
+
+import nltk
 
 DOC_DELIM = '|||||'
-HOME_DIR = os.path.expanduser('~/clin-sum')
+HOME_DIR = os.path.expanduser('/Users/nihaar/Documents/Spring20/research/abstractive-summarization/code/clin-sum/')
 # Special characters
 
 PAD = '<pad>'
@@ -38,13 +42,14 @@ class Example:
 
     def to_ids(self, vocab):
         start_idx = vocab.stoi['<start>']
-        end_idx = vocab.stoi['<end>']
+        end_idx = min(vocab.stoi['<end>'],75)
+        # end_idx = 75
         # Convert to list of ids
         doc_ids_w_unk, doc_ids_extended, doc_oov = doc_to_ids(self.doc_toks, vocab)
 
         # Get a version of the reference summary where in-article OOVs are represented by their temporary article OOV id
         sum_ids_w_unk, sum_ids_extended = summary_to_ids(self.summary_toks, vocab, doc_oov)
-        dec_input_ids, dec_target_ids = get_dec_inp_targ_seqs(sum_ids_w_unk, sum_ids_extended, 1000, start_idx, end_idx)
+        dec_input_ids, dec_target_ids = get_dec_inp_targ_seqs(sum_ids_w_unk, sum_ids_extended, 50, start_idx, end_idx)
 
         self.doc_oov = doc_oov
         self.enc_input_ids = doc_ids_w_unk
@@ -136,7 +141,10 @@ def tokenize(str):
 
 
 def get_dec_inp_targ_seqs(ids_w_unk, ids_w_extended, max_len, start_id, stop_id):
-    """Given the reference summary as a sequence of tokens, return the input sequence for the decoder, and the target sequence which we will use to calculate loss. The sequence will be truncated if it is longer than max_len. The input sequence must start with the start_id and the target sequence must end with the stop_id (but not if it's been truncated).
+    """Given the reference summary as a sequence of tokens, return the input sequence for the decoder, and the
+    target sequence which we will use to calculate loss. The sequence will be truncated if it is longer than max_len.
+    The input sequence must start with the start_id and the target sequence must end with the stop_id
+    (but not if it's been truncated).
     Args:
     sequence: List of ids (integers)
     max_len: integer
@@ -168,7 +176,7 @@ class MultiNewsDataset(Dataset):
         processed_data = []
         for i, example in enumerate(data):
             processed_data.append(self._preprocess_example(example))
-            if i > 100:
+            if i > 10: # presumably: to limit the number of examples in the training data
                 break
         self.examples = list(map(lambda x: Example(x[0], x[1]), processed_data))
 
@@ -192,6 +200,7 @@ def load():
         processed_dataset = pickle.load(open(preprocess_fn, 'rb'))
     else:
         full_dataset = nlp.load_dataset('multi_news')
+        print("Downlaoded the data")
         processed_dataset = {k: MultiNewsDataset(k, v) for k, v in full_dataset.items()}
 
         toks = []
@@ -200,8 +209,9 @@ def load():
             summary_tok_chain = map(lambda example: example.summary_toks, processed_dataset[k])
             toks += list(itertools.chain(*list(itertools.chain(*doc_tok_chain))))
             toks += list(itertools.chain(*summary_tok_chain))
-
         toks = remove_special(toks)
+        print("Obtained the tokens of size",len(toks))
+        # preprocess_fn = '/Users/nihaar/Documents/Spring20/research/abstractive-summarization/code/clin-sum/datasets/preprocessed/multi_news2.pk'
         vocab = Vocab(Counter(toks), specials=SPECIAL_CHARS, specials_first=True, min_freq=5)
         for k in processed_dataset:
             processed_dataset[k].vocab = vocab
@@ -211,3 +221,6 @@ def load():
             pickle.dump(processed_dataset, fd)
 
     return processed_dataset
+
+
+# load()
