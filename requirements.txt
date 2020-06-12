@@ -1,0 +1,4 @@
+stanza
+pytorch_lightning
+nlp
+transformers

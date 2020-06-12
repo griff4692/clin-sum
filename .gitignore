@@ -130,3 +130,6 @@ dmypy.json
 .pyre/
 
 data/
+transformers/
+lightning_logs/
+results/
