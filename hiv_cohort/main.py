@@ -83,10 +83,6 @@ MED_CODE_FN = '/nlp/projects/oliver_avroProcessing/medCodeMapping/dataSaves/medC
 #   }]
 # }
 
-
-# ROW_ID    fileName    SUBJECT_ID  HADM_ID CHARTDATE   CHARTTIME   NOTE_SPLIT  note_content
-# csv file must contain fileName and note_content for it to work with prioritization
-
 def get_med_code_info(med_code_df, med_code):
     info = defaultdict(list)
     med_code_row = med_code_df[med_code_df['medCode'] == med_code]

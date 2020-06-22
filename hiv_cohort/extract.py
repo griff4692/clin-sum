@@ -12,7 +12,8 @@ MED_CODE_FN = '/nlp/projects/oliver_avroProcessing/medCodeMapping/dataSaves/medC
 
 def dump(arr, cols, fn):
     df = pd.DataFrame(arr, columns=cols)
-    df.drop(columns=['person_id.1'], inplace=True)
+    if 'person_id.1' in df.columns:
+        df.drop(columns=['person_id.1'], inplace=True)
     df.to_csv(fn, index=False)
 
 
@@ -38,30 +39,35 @@ if __name__ == '__main__':
     with open(notes_fn, 'rb') as fd:
         notes = pickle.load(fd)
     notes.columns = map(str.lower, notes.columns)
+    print('Number of notes from {} --> {}'.format(notes_fn, notes.shape[0]))
 
     mrn_person_id = os.path.join(DATA_DIR, 'mrn_person_id_list.pickle')
     with open(mrn_person_id, 'rb') as fd:
         id_lookup = pickle.load(fd)
 
+    print('Number of mrns from {} --> {}'.format(mrn_person_id, id_lookup.shape[0]))
+
     ################################
-    #merge person id to notes data##
+    #   merge person id to notes   #
     ################################
 
     notes = notes.merge(id_lookup, on='mrn', how='inner')
 
+    print('After inner join on mrn: notes={}, mrns={}'.format(notes.shape[0], len(notes['mrn'].tolist())))
+
     ####################
-    # transform dates ##
-    #####################
+    # transform dates  #
+    ####################
     notes = notes[['person_id', 'mrn', 'time_str_key', 'primary_time', 'update_time', 'event_code', 'title', 'text']]
-    dup_notes_i = notes.duplicated(subset=['mrn', 'primary_time', 'title'] , keep=False)
+    dup_notes_i = notes.duplicated(subset=['mrn', 'primary_time', 'title'], keep=False)
     notes = notes[~dup_notes_i]
     notes['time_str_key'] = pd.to_datetime(notes.time_str_key, format='%Y-%m-%d-%H.%M.%S.%f', errors='coerce')
     notes['primary_time'] = pd.to_datetime(notes.primary_time, unit='ms', origin='unix', errors='coerce')
     notes['update_time'] = pd.to_datetime(notes.update_time, unit='ms', origin='unix', errors='coerce')
     notes['date'] = notes['time_str_key'].dt.date
     note_cols = list(notes.columns)
-    ####################
-    #read visit data ##
+    #####################
+    #  read visit data  #
     #####################
 
     #* patient_class_code - values are from the following:
