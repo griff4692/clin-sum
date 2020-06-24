@@ -24,6 +24,9 @@ if __name__ == '__main__':
         for line in fd:
             items = line.split('|')
             visit_code = _strip(items[3])
+            year = int(_strip(items[4]).split('-')[0])
+            if year < 2010 or year > 2014:
+                continue
             type_ct[visit_code] += 1
             if visit_code == TARGET_CODE:
                 df.append(list(map(_strip, items)))

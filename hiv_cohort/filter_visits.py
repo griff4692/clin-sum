@@ -2,16 +2,6 @@ from datetime import datetime
 
 import pandas as pd
 
-# Use 3 decimal places in output display
-pd.set_option("display.precision", 3)
-
-# Don't wrap repr(DataFrame) across additional lines
-pd.set_option("display.expand_frame_repr", False)
-
-# Set max rows displayed in output to 25
-pd.set_option("display.max_rows", 25)
-
-
 def str_to_dt(str):
     return datetime.strptime(str, '%Y-%m-%d-%H.%M.%S.%f')
 
