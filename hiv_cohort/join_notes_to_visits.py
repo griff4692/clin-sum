@@ -2,8 +2,10 @@ from datetime import datetime
 import os
 from multiprocessing import Pool
 import shutil
+from time import time
 
 import pandas as pd
+pd.options.mode.chained_assignment = None
 from tqdm import tqdm
 
 visit_fn = '/nlp/projects/clinsum/inpatient_visits_reduced.csv'

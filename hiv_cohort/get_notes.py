@@ -19,6 +19,8 @@ avro_fp = '/nlp/cdw/discovery_request_1342/notes_avro/all_docs_201406190000/'
 out_dir = '/nlp/projects/clinsum/notes_by_mrn'
 med_code_fn = '/nlp/cdw/note_medcodes/notetype_loinc.txt'
 
+MIN_DOC_LEN = 25
+
 
 def _save(row, cols, fn):
     df = pd.DataFrame(row, columns=cols)
@@ -86,12 +88,13 @@ def main(max=None):
                     'text': content
                 }
 
-                _save(row, cols, out_fn)
-                total += 1
-                if total % 1000 == 0:
-                    print('Added {} notes'.format(total))
-                if max is not None and total >= max:
-                    done = True
+                if content is not None and len(content) >= MIN_DOC_LEN:
+                    _save(row, cols, out_fn)
+                    total += 1
+                    if total % 1000 == 0:
+                        print('Added {} notes'.format(total))
+                    if max is not None and total >= max:
+                        done = True
             if done:
                 break
         if done:

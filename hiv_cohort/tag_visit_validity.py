@@ -22,7 +22,7 @@ def is_dsum(notetype):
     if notetype is None:
         return False
     ntl = notetype.lower()
-    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurs' in ntl
+    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurse' in ntl and not 'nursing' in ntl
 
 
 def label_io(mrn):
@@ -36,7 +36,7 @@ def label_io(mrn):
     if not nonzero_valid_visits:
         return 0, 0
 
-    notes_df.dropna(subset=['account'], inplace=True)
+    notes_df.dropna(subset=['account', 'text'], inplace=True)
     notes_df.fillna({'note_type': 'N/A'}, inplace=True)
     notes_df['timestamp'] = notes_df['timestamp'].apply(str_to_dt)
     notes_df.sort_values('timestamp', inplace=True)
@@ -59,7 +59,8 @@ def label_io(mrn):
             is_pre_dsum = False if dsum_timestamp is None else note_row['timestamp'] < dsum_timestamp
             ntl = note_row['note_type'].lower()
             dsum_related = 'discharge' in ntl
-            is_source[x] = is_pre_dsum and not dsum_related
+            nurse_related = 'nurse' in ntl or 'nursing' in ntl
+            is_source[x] = is_pre_dsum and not dsum_related and not nurse_related
         is_valid = any(is_source) and has_target
         if is_valid:
             valid_accounts.append(str(account))

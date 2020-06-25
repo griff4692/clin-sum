@@ -154,7 +154,7 @@ def is_dsum(notetype):
     if notetype is None:
         return False
     ntl = notetype.lower()
-    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurs' in ntl
+    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurse' in ntl and not 'nursing' in ntl
 
 
 if __name__ == '__main__':
