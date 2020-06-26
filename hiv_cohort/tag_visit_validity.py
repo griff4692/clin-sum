@@ -22,7 +22,7 @@ def is_dsum(notetype):
     if notetype is None:
         return False
     ntl = notetype.lower()
-    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurse' in ntl and not 'nursing' in ntl
+    return 'discharge summary' in ntl or 'discharge note' in ntl
 
 
 def label_io(mrn):
@@ -36,7 +36,8 @@ def label_io(mrn):
     if not nonzero_valid_visits:
         return 0, 0
 
-    notes_df.dropna(subset=['account', 'text'], inplace=True)
+    # Needs to be associated with a visit, have content, and have a timestamp
+    notes_df.dropna(subset=['account', 'text', 'timestamp'], inplace=True)
     notes_df.fillna({'note_type': 'N/A'}, inplace=True)
     notes_df['timestamp'] = notes_df['timestamp'].apply(str_to_dt)
     notes_df.sort_values('timestamp', inplace=True)
@@ -68,11 +69,6 @@ def label_io(mrn):
             invalid_accounts.append(str(account))
     notes_df['is_source'] = is_source
     notes_df.to_csv(notes_fn, index=False)
-    with open(os.path.join(notes_dir, mrn, 'valid_accounts.txt'), 'w') as fd:
-        fd.write('\n'.join(valid_accounts))
-    with open(os.path.join(notes_dir, mrn, 'invalid_accounts.txt'), 'w') as fd:
-        fd.write('\n'.join(invalid_accounts))
-
     return len(valid_accounts), len(invalid_accounts)
 
 
