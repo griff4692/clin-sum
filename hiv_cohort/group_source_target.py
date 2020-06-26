@@ -1,6 +1,7 @@
 from datetime import datetime
+from functools import partial
 import os
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 import re
 from time import time
 
@@ -8,18 +9,19 @@ import pandas as pd
 pd.options.mode.chained_assignment = None
 from tqdm import tqdm
 
-notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
-MIN_SOURCE_LEN = 100
 from extract_course import MIN_TARGET_LEN, extract_hospital_course, clean
 
 
+EXAMPLE_DELIM = '|' * 5
+MIN_SOURCE_LEN = 100
 HEADER_SEARCH_REGEX = r'(?:^|\s{4,}|\n)[\d.#]{0,4}\s*([A-Z][A-z0-9/ ]+[A-z]:|[A-Z0-9/ ]+\n)'
 SEP_REGEX = r'\.\s|\n{2,}|^\s{0,}\d{1,2}\s{0,}[-).]\s{1,}'
+notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
 
 
 def stringify(x):
-    if x is None:
-        return 'N/A'
+    if x == 'N/A':
+        return x
     return str(int(float(x)))
 
 
@@ -55,54 +57,60 @@ def process_source(source_records, account):
     return ''
 
 
-def generate_examples(mrn):
-    valid_accounts_fn = os.path.join(notes_dir, mrn, 'valid_accounts.txt')
+def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
+    valid_accounts_fn = os.path.join(notes_dir, mrn, 'valid_accounts.csv')
     notes_fn = os.path.join(notes_dir, mrn, 'notes.csv')
     source_fn = os.path.join(notes_dir, mrn, 'data.source')
     target_fn = os.path.join(notes_dir, mrn, 'data.target')
     examples_fn = os.path.join(notes_dir, mrn, 'examples.txt')
+    if not os.path.exists(valid_accounts_fn):
+        return 0, 0
 
-    valid_accounts = []
-    with open(valid_accounts_fn, 'r') as fd:
-        for line in fd:
-            if len(line) > 0:
-                valid_accounts.append(line.strip())
-
+    valid_accounts = pd.read_csv(valid_accounts_fn).dropna()['account'].astype('str').tolist()
     notes_df = pd.read_csv(notes_fn)
-    # TODO will be deprecated because we do this filtering earlier
-    notes_df.dropna(subset=['text'], inplace=True)
+
+    # TODO will be deprecated
+    notes_df.fillna({'account': 'N/A'}, inplace=True)
+    # Might need to keep this
+    notes_df['account'] = notes_df['account'].apply(stringify)
+
     examples, sources, targets = [], [], []
     for account in valid_accounts:
-        account_str = stringify(account)
-        account_notes = notes_df[notes_df['account'] == int(account_str)]
+        account_notes = notes_df[notes_df['account'] == account]
         source_df = account_notes[account_notes['is_source']]
-        target_df = account_notes[account_notes['is_target']]
-        source_note_str = process_source(source_df.to_dict('records'), account_str)
-        target_note_str = process_target(target_df.to_dict('records'), account_str)
+        dsum_df = account_notes[account_notes['is_dsum']]
+        if source_df.shape[0] == 0:
+            print('MRN={} Account={} has no source documents'.format(mrn, account))
+            return
+        if dsum_df.shape[0] == 0:
+            print('MRN={} Account={} has no target documents'.format(mrn, account))
+            return
+        # if passes put # assert source_df.shape[0] > 0 and target_df.shape[0] > 0
 
-        note_types = source_df['note_type'].tolist() + target_df['note_type'].tolist()
-        for nt in note_types:
-            if type(nt) == float:
-                continue
-            ntl = nt.lower()
-            if 'nursing' in ntl or 'nurse' in ntl:
-                raise Exception(nt)
-
+        source_note_str = process_source(source_df.to_dict('records'), account)
+        target_note_str = process_target(dsum_df.to_dict('records'), account)
         if len(source_note_str) > 0 and len(target_note_str) > 0:
             sources.append(source_note_str)
             targets.append(target_note_str)
-            examples.append(account_str)
+            examples.append(account)
+
+            with lock:
+                valid_counter.value += 1
+                if valid_counter.value % 10000 == 0:
+                    print('Dsums with Hospital Course={}. {} without.'.format(
+                        valid_counter.value, invalid_counter.value))
+        else:
+            with lock:
+                invalid_counter.value += 1
 
     with open(source_fn, 'w') as fd:
-        fd.write('\n'.join(sources))
+        fd.write(EXAMPLE_DELIM.join(sources))
 
     with open(target_fn, 'w') as fd:
-        fd.write('\n'.join(targets))
+        fd.write(EXAMPLE_DELIM.join(targets))
 
     with open(examples_fn, 'w') as fd:
         fd.write('\n'.join(examples))
-
-    return len(examples), len(valid_accounts)
 
 
 if __name__ == '__main__':
@@ -110,16 +118,23 @@ if __name__ == '__main__':
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    p = Pool()
-    counts = p.map(generate_examples, mrns)
-    end_time = time()
+    with Manager() as manager:
+        valid_counter = manager.Value('i', 0)
+        invalid_counter = manager.Value('i', 0)
+        lock = manager.Lock()
+        pool = Pool()  # By default pool will size depending on cores available
+        pool.map(
+            partial(generate_examples, valid_counter=valid_counter, invalid_counter=invalid_counter, lock=lock),
+            mrns
+        )
+        pool.close()
+        pool.join()
 
+        print('Visits with Hospital Course in dsum={}.'.format(valid_counter.value))
+        print('Visits without Hospital Course in dsum={}.'.format(invalid_counter.value))
+    end_time = time()
     minutes = (end_time - start_time) / 60.0
     round_factor = 0
     if minutes < 1:
         round_factor = 2
     print('Took {} minutes'.format(minutes, round(round_factor)))
-
-    ex = sum(map(lambda x: x[0], counts))
-    total = sum(map(lambda x: x[1], counts))
-    print('{} out of {} possible examples generated'.format(ex, total))

@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 import glob
 from itertools import chain
-from multiprocessing import Lock, Manager, Pool, Queue, Value
+from multiprocessing import Lock, Manager, Pool, Value
 import os
 import random
 import re

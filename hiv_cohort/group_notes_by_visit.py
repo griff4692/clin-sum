@@ -1,20 +1,19 @@
 from datetime import datetime
+from functools import partial
 import os
-from multiprocessing import Pool
-import shutil
-from time import time
+from multiprocessing import Manager, Pool, Value
+from time import time, sleep
+import warnings
+warnings.filterwarnings('error')
 
+import numpy as np
 import pandas as pd
 pd.options.mode.chained_assignment = None
 from tqdm import tqdm
 
 visit_fn = '/nlp/projects/clinsum/inpatient_visits.csv'
 notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
-
-
-def separate_by_col(df, col):
-    df_groups = df.groupby(col)
-    return {str(k): pd.DataFrame(df.loc[v]).to_dict('records') for k, v in df_groups.groups.items()}
+NULL_STR = 'N/A'
 
 
 def str_to_d(date_str):
@@ -27,13 +26,6 @@ def str_to_dt(date_str):
     if '.' in date_str:
         return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
     return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-
-
-visit_df = pd.read_csv(visit_fn)
-print('Preprocessing visit dataframe...')
-visit_df['start_date'] = visit_df['admit_date_min'].apply(str_to_d)
-visit_df['end_date'] = visit_df['discharge_date_max'].apply(str_to_d)
-mrn_visit_records = separate_by_col(visit_df, 'mrn')
 
 
 def get_visit_id(date, visit_records):
@@ -49,8 +41,15 @@ def get_visit_id(date, visit_records):
     return None
 
 
-def is_dsum(notetype):
-    if notetype is None:
+def is_dsum(notetype, title):
+    if notetype == NULL_STR:
+        if title == NULL_STR:
+            return False
+        tl = title.lower()
+        tl_nurse = 'nurse' in tl or 'nursing' in tl
+        title_dc = 'discharge' in tl and ('summary' in tl or 'note' in tl)
+        if title_dc and not tl_nurse:
+            return True
         return False
     ntl = notetype.lower()
     dc = 'discharge summary' in ntl or 'discharge note' in ntl
@@ -69,8 +68,8 @@ def remove_overlapping(visit_records):
     return vr
 
 
-def join(mrn):
-    mrn_visit_record = mrn_visit_records[mrn]
+def join(mrn, valid_counter, invalid_counter, lock):
+    mrn_visit_record = visit_df[visit_df['mrn'] == mrn].to_dict('records')
     num_visits = len(mrn_visit_record)
     assert num_visits > 0
 
@@ -78,27 +77,41 @@ def join(mrn):
     mrn_dir = os.path.join(notes_dir, mrn)
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
 
-    notes_df = pd.read_csv(notes_fn)
+    try:
+        notes_df = pd.read_csv(notes_fn)
+    except pd.errors.EmptyDataError:
+        print('Empty notes dataframe!')
+        return
     note_dates = notes_df['timestamp'].apply(str_to_d).tolist()
     notes_df['account'] = list(map(lambda x: get_visit_id(x, non_overlapping_visit_records), note_dates))
 
     # Needs to be associated with a visit, have content, and have a timestamp
-    notes_df.dropna(subset=['account', 'text', 'timestamp'], inplace=True)
-    notes_df.fillna({'note_type': 'N/A'}, inplace=True)
+    notes_df.dropna(subset=['text', 'timestamp'], inplace=True)
+    notes_df.drop_duplicates(subset=['note_id'], inplace=True)
+    notes_df.fillna({'title': 'N/A', 'note_type': 'N/A', 'account': 'N/A'}, inplace=True)
     notes_df['timestamp'] = notes_df['timestamp'].apply(str_to_dt)
     notes_df.sort_values('timestamp', inplace=True)
     notes_df.reset_index(inplace=True, drop=True)
-    notes_df['is_target'] = notes_df['note_type'].apply(is_dsum)
     notes_n = notes_df.shape[0]
-    is_source = [False] * notes_n
-    accounts = notes_df['account'].unique().tolist()
 
-    valid_account_n, invalid_account_n = 0, 0
+    if notes_n == 0:
+        print('No notes!')
+        notes_df['is_source'] = []
+        notes_df['is_dsum'] = []
+        notes_df.to_csv(notes_fn, index=False)
+        return
+
+    notes_df['is_dsum'] = notes_df['note_type'].combine(notes_df['title'], is_dsum)
+    is_source = [False] * notes_n
+    accounts = list(filter(lambda x: not x == NULL_STR, notes_df['account'].unique().tolist()))
+    valid_accounts = []
     for account in accounts:
+        assert not account in [None, NULL_STR]
         note_account_df = notes_df[notes_df['account'] == account]
-        dsums = note_account_df[note_account_df['is_target']]
+        dsums = note_account_df[note_account_df['is_dsum']]
         n_dsums = dsums.shape[0]
         has_target = n_dsums >= 1
+        has_source = False
         dsum_timestamp = dsums['timestamp'].min() if has_target else None
         for x, note_row in note_account_df.iterrows():
             note_row = note_row.to_dict()
@@ -106,37 +119,56 @@ def join(mrn):
             ntl = note_row['note_type'].lower()
             dsum_related = 'discharge' in ntl
             is_source[x] = is_pre_dsum and not dsum_related
-        is_valid = any(is_source) and has_target
+            has_source = has_source or is_source[x]
+        is_valid = has_source and has_target
         if is_valid:
-            valid_account_n += 1
+            valid_accounts.append(account)
+            with lock:
+                valid_counter.value += 1
+                if valid_counter.value % 10000 == 0:
+                    print('Valid visits={}.  Invalid visits={}'.format(valid_counter.value, invalid_counter.value))
         else:
-            invalid_account_n += 1
-    notes_df['is_source'] = is_source
-    if valid_account_n == 0:
-        print('Removing mrn directory --> {}'.format(mrn_dir))
-        shutil.rmtree(mrn_dir)
-    else:
-        notes_df.to_csv(notes_fn, index=False)
+            with lock:
+                invalid_counter.value += 1
 
-    return valid_account_n, invalid_account_n
+    notes_df['is_source'] = is_source
+    notes_df.to_csv(notes_fn, index=False)
+    valid_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
+    valid_df = pd.DataFrame(valid_accounts, columns=['account'])
+    if len(valid_accounts) > 0:
+        valid_df.to_csv(valid_fn, index=False)
 
 
 if __name__ == '__main__':
+    visit_df = pd.read_csv(visit_fn)
+    print('Preprocessing visit dataframe...')
+    visit_df['start_date'] = visit_df['admit_date_min'].apply(str_to_d)
+    visit_df['end_date'] = visit_df['discharge_date_max'].apply(str_to_d)
+    visit_df = visit_df[['account', 'mrn', 'start_date', 'end_date']]
+    visit_df['mrn'] = visit_df['mrn'].astype('str')
+    visit_df['account'] = visit_df['account'].astype('str')
+
     mrns = os.listdir(notes_dir)
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    p = Pool()
-    counts = p.map(join, mrns)
-    end_time = time()
+    with Manager() as manager:
+        valid_counter = manager.Value('i', 0)
+        invalid_counter = manager.Value('i', 0)
+        lock = manager.Lock()
+        pool = Pool()  # By default pool will size depending on cores available
+        pool.map(
+            partial(join, valid_counter=valid_counter, invalid_counter=invalid_counter, lock=lock),
+            mrns
+        )
+        pool.close()
+        pool.join()
 
+        print('{} visits are valid (have >= 1 dsum and >= 1 preceeding documents).'.format(valid_counter.value))
+        print('{} visits are invalid (have 0 dsum or 0 preceeding documents).'.format(invalid_counter.value))
+    end_time = time()
     minutes = (end_time - start_time) / 60.0
     round_factor = 0
     if minutes < 1:
         round_factor = 2
     print('Took {} minutes'.format(minutes, round(round_factor)))
-
-    valid_account_n = sum([x[0] for x in counts])
-    invalid_account_n = sum([x[1] for x in counts])
-    print('{} visits are valid (have >= 1 dsum and >= 1 preceeding documents).'.format(valid_account_n))
-    print('{} visits are invalid (have 0 dsum or 0 preceeding documents).'.format(invalid_account_n))
