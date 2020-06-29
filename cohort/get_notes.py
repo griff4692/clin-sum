@@ -71,8 +71,9 @@ def worker(fn, note_counter, lock, med_code_map, mrn_filter):
             med_code = int(record['EVENT_CODE'])
             note_type = med_code_map.get(med_code, None)
             keep_nt = note_type is None or re.search(BLACKLIST_SEARCH, note_type.lower()) is None
+            keep_title = title is None or re.search(BLACKLIST_SEARCH, title.lower()) is None
 
-            if keep_nt and mrn in mrn_filter:
+            if keep_nt and keep_title and mrn in mrn_filter:
                 row = {
                     'mrn': mrn,
                     'timestamp': date_time,

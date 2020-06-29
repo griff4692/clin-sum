@@ -12,7 +12,6 @@ from tqdm import tqdm
 from extract_course import MIN_TARGET_LEN, extract_hospital_course, clean
 
 
-EXAMPLE_DELIM = '|' * 5
 MIN_SOURCE_LEN = 100
 HEADER_SEARCH_REGEX = r'(?:^|\s{4,}|\n)[\d.#]{0,4}\s*([A-Z][A-z0-9/ ]+[A-z]:|[A-Z0-9/ ]+\n)'
 SEP_REGEX = r'\.\s|\n{2,}|^\s{0,}\d{1,2}\s{0,}[-).]\s{1,}'
@@ -60,24 +59,20 @@ def process_source(source_records, account):
 def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
     valid_accounts_fn = os.path.join(notes_dir, mrn, 'valid_accounts.csv')
     notes_fn = os.path.join(notes_dir, mrn, 'notes.csv')
-    source_fn = os.path.join(notes_dir, mrn, 'data.source')
-    target_fn = os.path.join(notes_dir, mrn, 'data.target')
-    examples_fn = os.path.join(notes_dir, mrn, 'examples.txt')
+    examples_fn = os.path.join(notes_dir, mrn, 'examples.csv')
     if not os.path.exists(valid_accounts_fn):
         return 0, 0
 
     valid_accounts = pd.read_csv(valid_accounts_fn).dropna()['account'].astype('str').tolist()
     notes_df = pd.read_csv(notes_fn)
 
-    # TODO will be deprecated
     notes_df.fillna({'account': 'N/A'}, inplace=True)
-    # Might need to keep this
     notes_df['account'] = notes_df['account'].apply(stringify)
 
     examples, sources, targets = [], [], []
     for account in valid_accounts:
         account_notes = notes_df[notes_df['account'] == account]
-        source_df = account_notes[account_notes['is_source']]
+        source_df = account_notes[account_notes['is_rel_source']]
         dsum_df = account_notes[account_notes['is_dsum']]
         if source_df.shape[0] == 0:
             print('MRN={} Account={} has no source documents'.format(mrn, account))
@@ -85,14 +80,11 @@ def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
         if dsum_df.shape[0] == 0:
             print('MRN={} Account={} has no target documents'.format(mrn, account))
             return
-        # if passes put # assert source_df.shape[0] > 0 and target_df.shape[0] > 0
 
         source_note_str = process_source(source_df.to_dict('records'), account)
         target_note_str = process_target(dsum_df.to_dict('records'), account)
         if len(source_note_str) > 0 and len(target_note_str) > 0:
-            sources.append(source_note_str)
-            targets.append(target_note_str)
-            examples.append(account)
+            examples.append((mrn, account, source_note_str, target_note_str))
 
             with lock:
                 valid_counter.value += 1
@@ -103,14 +95,9 @@ def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
             with lock:
                 invalid_counter.value += 1
 
-    with open(source_fn, 'w') as fd:
-        fd.write(EXAMPLE_DELIM.join(sources))
-
-    with open(target_fn, 'w') as fd:
-        fd.write(EXAMPLE_DELIM.join(targets))
-
-    with open(examples_fn, 'w') as fd:
-        fd.write('\n'.join(examples))
+    if len(examples) > 0:
+        df = pd.DataFrame(examples, columns=['mrn', 'account', 'source_str', 'target_str'])
+        df.to_csv(examples_fn, index=False)
 
 
 if __name__ == '__main__':

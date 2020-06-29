@@ -2,6 +2,7 @@ from datetime import datetime
 from functools import partial
 import os
 from multiprocessing import Manager, Pool, Value
+import re
 from time import time, sleep
 import warnings
 warnings.filterwarnings('error')
@@ -68,6 +69,24 @@ def remove_overlapping(visit_records):
     return vr
 
 
+def has_relevant_title(title):
+    if type(title) == float:
+        return False
+
+    tl = title.lower()
+    keep_frags = [
+        'admission',
+        'admit',
+        'assessment',
+        'consult'
+        'free text',
+        'progress',
+    ]
+    sr = r'({})'.format('|'.join(keep_frags))
+    rel = re.search(sr, tl)
+    return rel is not None
+
+
 def join(mrn, valid_counter, invalid_counter, lock):
     mrn_visit_record = visit_df[visit_df['mrn'] == mrn].to_dict('records')
     num_visits = len(mrn_visit_record)
@@ -76,11 +95,16 @@ def join(mrn, valid_counter, invalid_counter, lock):
     non_overlapping_visit_records = remove_overlapping(mrn_visit_record)
     mrn_dir = os.path.join(notes_dir, mrn)
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
+    valid_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
+
+    # Remove valid accounts in case it doesn't get over-written (i.e. we return early and don't update it)
+    if os.path.exists(valid_fn):
+        os.remove(valid_fn)
 
     try:
         notes_df = pd.read_csv(notes_fn)
     except pd.errors.EmptyDataError:
-        print('Empty notes dataframe!')
+        print('Empty notes DataFrame!')
         return
     note_dates = notes_df['timestamp'].apply(str_to_d).tolist()
     notes_df['account'] = list(map(lambda x: get_visit_id(x, non_overlapping_visit_records), note_dates))
@@ -97,12 +121,14 @@ def join(mrn, valid_counter, invalid_counter, lock):
     if notes_n == 0:
         print('No notes!')
         notes_df['is_source'] = []
+        notes_df['is_rel_source'] = []
         notes_df['is_dsum'] = []
         notes_df.to_csv(notes_fn, index=False)
         return
 
     notes_df['is_dsum'] = notes_df['note_type'].combine(notes_df['title'], is_dsum)
     is_source = [False] * notes_n
+    is_rel_source = [False] * notes_n
     accounts = list(filter(lambda x: not x == NULL_STR, notes_df['account'].unique().tolist()))
     valid_accounts = []
     for account in accounts:
@@ -118,8 +144,10 @@ def join(mrn, valid_counter, invalid_counter, lock):
             is_pre_dsum = False if dsum_timestamp is None else note_row['timestamp'] < dsum_timestamp
             ntl = note_row['note_type'].lower()
             dsum_related = 'discharge' in ntl
+            relevant_title = has_relevant_title(note_row['title'])
             is_source[x] = is_pre_dsum and not dsum_related
-            has_source = has_source or is_source[x]
+            is_rel_source[x] = is_source[x] and relevant_title
+            has_source = has_source or is_rel_source[x]
         is_valid = has_source and has_target
         if is_valid:
             valid_accounts.append(account)
@@ -132,8 +160,8 @@ def join(mrn, valid_counter, invalid_counter, lock):
                 invalid_counter.value += 1
 
     notes_df['is_source'] = is_source
+    notes_df['is_rel_source'] = is_rel_source
     notes_df.to_csv(notes_fn, index=False)
-    valid_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
     valid_df = pd.DataFrame(valid_accounts, columns=['account'])
     if len(valid_accounts) > 0:
         valid_df.to_csv(valid_fn, index=False)
