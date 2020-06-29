@@ -100,7 +100,7 @@ def main():
     Description: Loops through the avro folder and extracts notes for mrn list.
     """
     all_avro_fns = sorted(glob.glob(os.path.join(avro_fp, '*.avro')))
-    pool_arg = sys.argv[1]
+    force = sys.argv[1] and sys.argv[1] == 'force'
     max_n = None if len(sys.argv) == 2 else int(sys.argv[2])
     if max_n is not None:
         np.random.seed(1992)
@@ -109,8 +109,11 @@ def main():
         print('Truncated to {} random avro files (for debugging)'.format(max_n))
 
     if os.path.exists(out_dir):
-        print('Clearing out {}'.format(out_dir))
-        shutil.rmtree(out_dir)
+        if force:
+            print('Clearing out {}'.format(out_dir))
+            shutil.rmtree(out_dir)
+        else:
+            raise Exception('Either run with \'force\' flag or clear out {}'.format(out_dir))
     print('Making a fresh dir at {}'.format(out_dir))
     os.mkdir(out_dir)
 
@@ -123,31 +126,20 @@ def main():
 
     start_time = time()
 
-    if pool_arg == 'pool':
-        with Manager() as manager:
-            note_counter = manager.Value('i', 0)
-            lock = manager.Lock()
-            pool = Pool()  # By default pool will size depending on cores available
-            mrns = list(pool.map(partial(
-                worker, note_counter=note_counter, lock=lock, med_code_map=med_code_map, mrn_filter=mrn_filter),
-                all_avro_fns
-            ))
-            pool.close()
-            pool.join()
-            mrns = set(list(chain.from_iterable(mrns)))
-            mrn_count = len(mrns)
-            print('Saved {} notes for {} patients'.format(note_counter.value, mrn_count))
-    elif pool_arg == 'linear':
-        note_counter = SimpleCounter()
-        mrns = []
-        for fn in all_avro_fns:
-            result = worker(fn, note_counter=note_counter, lock=None, med_code_map=med_code_map, mrn_filter=mrn_filter)
-            mrns.append(result)
+    with Manager() as manager:
+        note_counter = manager.Value('i', 0)
+        lock = manager.Lock()
+        pool = Pool()  # By default pool will size depending on cores available
+        mrns = list(pool.map(partial(
+            worker, note_counter=note_counter, lock=lock, med_code_map=med_code_map, mrn_filter=mrn_filter),
+            all_avro_fns
+        ))
+        pool.close()
+        pool.join()
         mrns = set(list(chain.from_iterable(mrns)))
         mrn_count = len(mrns)
         print('Saved {} notes for {} patients'.format(note_counter.value, mrn_count))
-    else:
-        raise Exception('Did\'nt recognize pool arg={}'.format(pool_arg))
+
     end_time = time()
     minutes = (end_time - start_time) / 60.0
     round_factor = 0
