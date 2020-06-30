@@ -11,15 +11,12 @@ from tqdm import tqdm
 
 from extract_course import MIN_TARGET_LEN, extract_hospital_course, clean
 
-
-MIN_SOURCE_LEN = 100
-HEADER_SEARCH_REGEX = r'(?:^|\s{4,}|\n)[\d.#]{0,4}\s*([A-Z][A-z0-9/ ]+[A-z]:|[A-Z0-9/ ]+\n)'
-SEP_REGEX = r'\.\s|\n{2,}|^\s{0,}\d{1,2}\s{0,}[-).]\s{1,}'
-notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
+from constants import *
+from utils import *
 
 
 def stringify(x):
-    if x == 'N/A':
+    if x == NULL_STR:
         return x
     return str(int(float(x)))
 
@@ -57,34 +54,28 @@ def process_source(source_records, account):
 
 
 def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
-    valid_accounts_fn = os.path.join(notes_dir, mrn, 'valid_accounts.csv')
-    notes_fn = os.path.join(notes_dir, mrn, 'notes.csv')
-    examples_fn = os.path.join(notes_dir, mrn, 'examples.csv')
-    if not os.path.exists(valid_accounts_fn):
-        return 0, 0
+    mrn_dir = os.path.join(out_dir, 'mrn', mrn)
+    valid_accounts_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
+    notes_fn = os.path.join(mrn_dir, 'notes.csv')
+    examples_fn = os.path.join(mrn_dir, 'examples.csv')
 
     valid_accounts = pd.read_csv(valid_accounts_fn).dropna()['account'].astype('str').tolist()
-    notes_df = pd.read_csv(notes_fn)
 
-    notes_df.fillna({'account': 'N/A'}, inplace=True)
+    notes_df = pd.read_csv(notes_fn)
+    notes_df = notes_df.fillna(NULL_STR)
     notes_df['account'] = notes_df['account'].apply(stringify)
 
     examples, sources, targets = [], [], []
     for account in valid_accounts:
         account_notes = notes_df[notes_df['account'] == account]
-        source_df = account_notes[account_notes['is_rel_source']]
-        dsum_df = account_notes[account_notes['is_dsum']]
-        if source_df.shape[0] == 0:
-            print('MRN={} Account={} has no source documents'.format(mrn, account))
-            return
-        if dsum_df.shape[0] == 0:
-            print('MRN={} Account={} has no target documents'.format(mrn, account))
-            return
-
+        source_df = account_notes[account_notes['is_source']]
+        target_df = account_notes[account_notes['is_target']]
+        assert source_df.shape[0] > 0 and target_df.shape[0] > 0
         source_note_str = process_source(source_df.to_dict('records'), account)
-        target_note_str = process_target(dsum_df.to_dict('records'), account)
+        target_note_str = process_target(target_df.to_dict('records'), account)
         if len(source_note_str) > 0 and len(target_note_str) > 0:
-            examples.append((mrn, account, source_note_str, target_note_str))
+            examples.append(
+                (mrn, account, len(source_note_str), len(target_note_str), source_note_str, target_note_str))
 
             with lock:
                 valid_counter.value += 1
@@ -96,12 +87,14 @@ def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
                 invalid_counter.value += 1
 
     if len(examples) > 0:
-        df = pd.DataFrame(examples, columns=['mrn', 'account', 'source_str', 'target_str'])
+        df = pd.DataFrame(examples, columns=['mrn', 'account', 'source_len', 'target_len', 'source_str', 'target_str'])
         df.to_csv(examples_fn, index=False)
+        return 1
+    return 0
 
 
 if __name__ == '__main__':
-    mrns = os.listdir(notes_dir)
+    mrn_status_df, mrn_valid_idxs, mrns = get_mrn_status_df('valid_account')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
@@ -110,7 +103,7 @@ if __name__ == '__main__':
         invalid_counter = manager.Value('i', 0)
         lock = manager.Lock()
         pool = Pool()  # By default pool will size depending on cores available
-        pool.map(
+        statuses = pool.map(
             partial(generate_examples, valid_counter=valid_counter, invalid_counter=invalid_counter, lock=lock),
             mrns
         )
@@ -119,9 +112,6 @@ if __name__ == '__main__':
 
         print('Visits with Hospital Course in dsum={}.'.format(valid_counter.value))
         print('Visits without Hospital Course in dsum={}.'.format(invalid_counter.value))
-    end_time = time()
-    minutes = (end_time - start_time) / 60.0
-    round_factor = 0
-    if minutes < 1:
-        round_factor = 2
-    print('Took {} minutes'.format(minutes, round(round_factor)))
+
+    update_mrn_status_df(mrn_status_df, list(statuses), mrn_valid_idxs, 'valid_example')
+    duration(start_time)

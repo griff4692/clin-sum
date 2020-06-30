@@ -3,8 +3,7 @@ from collections import defaultdict, Counter
 from functools import partial
 import os
 from multiprocessing import Manager, Pool, Value
-from time import time, sleep
-import warnings
+from time import time
 
 from medcat.cat import CAT
 from medcat.utils.vocab import Vocab
@@ -15,15 +14,19 @@ pd.options.mode.chained_assignment = None
 from scipy.stats import describe
 from tqdm import tqdm
 
-notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
+from constants import *
+from utils import *
+
 snomed_core_fn = '../data/SNOMEDCT_CORE_SUBSET_202005/SNOMEDCT_CORE_SUBSET_202005.txt'
 core_cols = ['SNOMED_CID', 'SNOMED_FSN', 'SNOMED_CONCEPT_STATUS']
 umls_cols = ['pretty_name', 'cui', 'tui', 'type', 'source_value', 'start', 'end', 'acc']
 
 
-def _process(mrn, entity, note_id, is_t):
+def _process(mrn, account, title, entity, note_id, is_t):
     row = {
         'mrn': mrn,
+        'account': account,
+        'title': title,
         'is_target': is_t,
         'is_source': not is_t,
         'note_id': note_id,
@@ -43,42 +46,47 @@ def _process(mrn, entity, note_id, is_t):
     return row
 
 
-def extract_entities(mrn, mrn_counter=None, entity_counter=None, rel_entity_counter=None, lock=None):
-    mrn_dir = os.path.join(notes_dir, mrn)
+def extract_entities(mrn, mrn_counter=None, entity_counter=None, lock=None):
+    mrn_dir = os.path.join(out_dir, 'mrn', mrn)
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
     entities_fn = os.path.join(mrn_dir, 'entities.csv')
 
-    try:
-        notes_df = pd.read_csv(notes_fn)
-    except pd.errors.EmptyDataError:
-        print('Empty notes DataFrame!')
-        return
+    if os.path.exists(entities_fn):
+        with lock:
+            mrn_counter.value += 1
+            if mrn_counter.value % 100 == 0:
+                print('Saved {} relevant entities for {} MRNs'.format(entity_counter.value, mrn_counter.value))
+            return
 
-    src_notes = notes_df[notes_df['is_rel_source']]
-    dsum_notes = notes_df[notes_df['is_dsum']]
-    is_target = ([False] * len(src_notes)) + ([True] * len(dsum_notes))
-    records = src_notes.to_dict('records') + dsum_notes.to_dict('records')
+    notes_df = pd.read_csv(notes_fn)
+    source_notes = notes_df[notes_df['is_source']]
+    target_notes = notes_df[notes_df['is_target']]
+    num_source, num_target = len(source_notes), len(target_notes)
+    assert min(num_source, num_target) > 0
+
+    is_target = ([False] * num_source) + ([True] * num_target)
+    records = source_notes.to_dict('records') + target_notes.to_dict('records')
     rows = []
     for i, record in enumerate(records):
         note_id = record['note_id']
         text = record['text']
+        account = record['account']
+        title = record['title']
         entities = cat.get_entities(text)
-        rows += list(map(lambda entity: _process(mrn, entity, note_id, is_target[i]), entities))
+        rows += list(map(lambda entity: _process(mrn, account, title, entity, note_id, is_target[i]), entities))
 
-    entity_n = len(rows)
-    if entity_n > 0:
-        df = pd.DataFrame(rows)
-        entity_rel_n = df[~df['snomed_cid'].isnull()].shape[0]
-        df.to_csv(entities_fn, index=False)
-        with lock:
-            mrn_counter.value += 1
-            entity_counter.value += entity_n
-            rel_entity_counter.value += entity_rel_n
-            if mrn_counter.value % 100 == 0:
-                print('Saved {} relevant entities for {} MRNs. {} total'.format(
-                    rel_entity_counter.value, mrn_counter.value, entity_counter.value))
-    else:
-        assert not os.path.exists(os.path.join(mrn_dir, 'examples.csv'))
+    df = pd.DataFrame(rows)
+    df = df[~df['snomed_cid'].isnull()]
+    entity_n = df.shape[0]
+    if entity_n == 0:
+        print('No entities found for MRN={}'.format(mrn))
+    df.to_csv(entities_fn, index=False)
+    with lock:
+        mrn_counter.value += 1
+        entity_counter.value += entity_n
+        if mrn_counter.value % 100 == 0:
+            print('Saved {} relevant entities for {} MRNs'.format(entity_counter.value, mrn_counter.value))
+
 
 
 if __name__ == '__main__':
@@ -100,7 +108,7 @@ if __name__ == '__main__':
     print('Creating MedCAT pipeline...')
     cat = CAT(cdb=cdb, vocab=vocab)
 
-    mrns = os.listdir(notes_dir)
+    _, _, mrns = get_mrn_status_df('valid_example')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
@@ -108,19 +116,12 @@ if __name__ == '__main__':
         pool = Pool()  # By default pool will size depending on cores available
         mrn_counter = manager.Value('i', 0)
         entity_counter = manager.Value('i', 0)
-        rel_entity_counter = manager.Value('i', 0)
         lock = manager.Lock()
         pool.map(
             partial(
-                extract_entities, mrn_counter=mrn_counter, entity_counter=entity_counter,
-                rel_entity_counter=rel_entity_counter, lock=lock
+                extract_entities, mrn_counter=mrn_counter, entity_counter=entity_counter, lock=lock
             ), mrns)
         pool.close()
         pool.join()
 
-    end_time = time()
-    minutes = (end_time - start_time) / 60.0
-    round_factor = 0
-    if minutes < 1:
-        round_factor = 2
-    print('Took {} minutes'.format(minutes, round(round_factor)))
+    duration(start_time)

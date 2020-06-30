@@ -18,19 +18,35 @@ import pandas as pd
 pd.options.mode.chained_assignment = None
 from tqdm import tqdm
 
+from constants import *
+from utils import *
 
-avro_fp = '/nlp/cdw/discovery_request_1342/notes_avro/all_docs_201406190000/'
-out_dir = '/nlp/projects/clinsum/notes_by_mrn'
-med_code_fn = '/nlp/cdw/note_medcodes/notetype_loinc.txt'
-
-MIN_DOC_LEN = 25
 SAVE_COLS = ['mrn', 'timestamp', 'med_code', 'note_type', 'title', 'fname', 'note_id', 'text']
-BLACKLIST_SEARCH = r'nurse|nursing'
+mrn_dir = os.path.join(out_dir, 'mrn')
 
 
-class SimpleCounter:
-    def __init__(self):
-        self.value = 0
+def has_relevant_title(title, nan_val):
+    if type(title) == float or title is None:
+        return nan_val
+
+    tl = title.lower()
+    keep_frags = [
+        'admission',
+        'admit',
+        'assessment',
+        'consult',
+        'discharge',
+        'free text',
+        'progress',
+    ]
+
+    remove_frags = ['nurse', 'nursing']
+
+    sr = r'({})'.format('|'.join(keep_frags))
+    rel = re.search(sr, tl) is not None
+    nr = r'({})'.format('|'.join(remove_frags))
+    is_remove = re.search(nr, tl) is not None
+    return rel and not is_remove
 
 
 def save(mrn_rows, note_counter):
@@ -43,7 +59,8 @@ def save(mrn_rows, note_counter):
         df.drop_duplicates(subset=[
             'note_id'
         ], inplace=True)
-        mrn_fn = os.path.join(out_dir, mrn)
+        df = df.fillna(NULL_STR)
+        mrn_fn = os.path.join(mrn_dir, mrn)
         if not os.path.exists(mrn_fn):
             os.mkdir(mrn_fn)
         notes_fn = os.path.join(mrn_fn, 'notes.csv')
@@ -64,34 +81,32 @@ def worker(fn, note_counter, lock, med_code_map, mrn_filter):
     with open(fn, 'rb') as fd:
         for record in reader(fd):
             date_time = str_to_dt(record['TIME_STR_KEY'])
-            title = record['TITLE']
-            content = record['TEXT']
-            mrn = record['MRN']
-            note_id = '_'.join([mrn, record['TIME_STR_KEY'], title])
-            med_code = int(record['EVENT_CODE'])
-            note_type = med_code_map.get(med_code, None)
-            keep_nt = note_type is None or re.search(BLACKLIST_SEARCH, note_type.lower()) is None
-            keep_title = title is None or re.search(BLACKLIST_SEARCH, title.lower()) is None
+            if MIN_YEAR <= date_time.year <= MAX_YEAR:
+                title = record['TITLE']
+                content = record['TEXT']
+                mrn = record['MRN']
+                note_id = '_'.join([mrn, record['TIME_STR_KEY'], title])
+                med_code = int(record['EVENT_CODE'])
+                note_type = med_code_map.get(med_code, None)
+                keep_nt = has_relevant_title(note_type, nan_val=True)
+                keep_title = has_relevant_title(title, nan_val=False)
 
-            if keep_nt and keep_title and mrn in mrn_filter:
-                row = {
-                    'mrn': mrn,
-                    'timestamp': date_time,
-                    'med_code': med_code,
-                    'note_type': note_type,
-                    'title': title,
-                    'fname': fn,
-                    'note_id': note_id,
-                    'text': content
-                }
-                if content is not None and len(content) >= MIN_DOC_LEN:
-                    mrn_rows[mrn].append(row)
+                if keep_nt and keep_title and mrn in mrn_filter:
+                    row = {
+                        'mrn': mrn,
+                        'timestamp': date_time,
+                        'med_code': med_code,
+                        'note_type': note_type,
+                        'title': title,
+                        'fname': fn,
+                        'note_id': note_id,
+                        'text': content
+                    }
+                    if content is not None and len(content) >= MIN_DOC_LEN:
+                        mrn_rows[mrn].append(row)
     if len(mrn_rows) > 0:
-        if lock is None:
+        with lock:
             save(mrn_rows, note_counter)
-        else:
-            with lock:
-                save(mrn_rows, note_counter)
 
     return list(mrn_rows.keys())
 
@@ -109,21 +124,22 @@ def main():
         all_avro_fns = all_avro_fns[:max_n]
         print('Truncated to {} random avro files (for debugging)'.format(max_n))
 
-    if os.path.exists(out_dir):
+    if os.path.exists(mrn_dir):
         if force:
-            print('Clearing out {}'.format(out_dir))
-            shutil.rmtree(out_dir)
+            print('Clearing out {}'.format(mrn_dir))
+            shutil.rmtree(mrn_dir)
         else:
-            raise Exception('Either run with \'force\' flag or clear out {}'.format(out_dir))
-    print('Making a fresh dir at {}'.format(out_dir))
-    os.mkdir(out_dir)
+            raise Exception('Either run with \'force\' flag or clear out {}'.format(mrn_dir))
+    print('Making a fresh dir at {}'.format(mrn_dir))
+    os.mkdir(mrn_dir)
 
     med_code_cols = ['note_type', 'notetype_medcode', 'note_descname', 'loinc_medcode', 'loinc_descname', 'axis_name']
     med_code_df = pd.read_csv(med_code_fn, sep='\t', header=None, names=med_code_cols)
     med_code_df.dropna(subset=['note_type', 'notetype_medcode'], inplace=True)
     med_code_map = med_code_df.set_index('notetype_medcode').to_dict()['note_type']
-    mrn_filter = set(pd.read_csv('/nlp/projects/clinsum/inpatient_visits.csv')['mrn'].unique().astype('str'))
-    print('Collecting notes for {} mrns...'.format(len(mrn_filter)))
+
+    mrn_status_df, mrn_valid_idxs, mrns = get_mrn_status_df('has_visit')
+    print('Collecting notes for {} mrns...'.format(len(mrns)))
 
     start_time = time()
 
@@ -131,23 +147,21 @@ def main():
         note_counter = manager.Value('i', 0)
         lock = manager.Lock()
         pool = Pool()  # By default pool will size depending on cores available
-        mrns = list(pool.map(partial(
-            worker, note_counter=note_counter, lock=lock, med_code_map=med_code_map, mrn_filter=mrn_filter),
+        mrns_w_notes = list(pool.map(partial(
+            worker, note_counter=note_counter, lock=lock, med_code_map=med_code_map, mrn_filter=mrns),
             all_avro_fns
         ))
         pool.close()
         pool.join()
-        mrns = set(list(chain.from_iterable(mrns)))
-        mrn_count = len(mrns)
+        mrns_w_notes = set(list(chain.from_iterable(mrns_w_notes)))
+        mrn_count = len(mrns_w_notes)
         print('Saved {} notes for {} patients'.format(note_counter.value, mrn_count))
 
-    end_time = time()
-    minutes = (end_time - start_time) / 60.0
-    round_factor = 0
-    if minutes < 1:
-        round_factor = 2
-    print('Took {} minutes'.format(minutes, round(round_factor)))
-    assert mrn_count == len(os.listdir(out_dir))
+    print('Saving MRN status for each of the original MRNs...')
+    note_statuses = list(map(lambda mrn: 1 if mrn in mrns_w_notes else 0, mrns))
+    update_mrn_status_df(mrn_status_df, note_statuses, mrn_valid_idxs, 'note_status')
+
+    duration(start_time)
 
 
 if __name__ == '__main__':

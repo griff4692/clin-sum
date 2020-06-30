@@ -5,13 +5,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-# CONSTANTS
-MAX_HEADER_LEN = 50
-# allowable number of extra chars on either side of
-# {'course', 'fen', 'gi', 'id', etc.}
-# to count as acceptable hospital course (sub)header
-MAX_SYSTEMS_COURSE_HEADER_LEN = 15
-MIN_TARGET_LEN = 25  # min number of allowable characters in body of hospital course section
+from constants import *
+from utils import *
 
 # Building Blocks
 BEGINNING = r'(?:^|\s{4,}|\t|\n)'
@@ -133,50 +128,3 @@ def extract_hospital_course(text):
             strs.append(course_str)
     strs = list(set(strs))
     return ' '.join(map(lambda x: '<s> {} </s>'.format(x), strs))
-
-
-def main():
-    df = pd.read_csv('/nlp/projects/clinsum/dsum_sample.csv')
-    df['is_dsum'] = df['note_type'].apply(is_dsum)
-    df = df[df['is_dsum']]
-    courses = []
-    records = df.to_dict('records')
-    n = len(records)
-    for i in tqdm(range(n)):
-        cleaned_text = clean(records[i]['text'])
-        courses.append(extract_hospital_course(cleaned_text))
-
-    df['course'] = courses
-    df.to_csv('/nlp/projects/clinsum/dsum_sample_annotated.csv', index=False)
-
-
-def is_dsum(notetype):
-    if notetype is None:
-        return False
-    ntl = notetype.lower()
-    return ('discharge summary' in ntl or 'discharge note' in ntl) and not 'nurse' in ntl and not 'nursing' in ntl
-
-
-if __name__ == '__main__':
-    action = sys.argv[1]
-    if action == 'run':
-        main()
-    else:
-        df = pd.read_csv('/nlp/projects/clinsum/dsum_sample_annotated.csv')
-        df['is_dsum'] = df['note_type'].apply(is_dsum)
-        df = df[df['is_dsum']]
-        records = df.to_dict('records')
-        i = 0 if len(sys.argv) == 2 else int(sys.argv[2])
-        record = records[i]
-        print(record['text'])
-        print('\n\n' + '_' * 100 + '\n\n')
-        print(record['note_type'], ', ', record['title'])
-        print('\n\n' + '_' * 100 + '\n\n')
-        tl = record['text'].lower()
-        course_in_src = 'hospital course' in tl or 'course:' in tl
-        if course_in_src:
-            print('Course in Source')
-        else:
-            print('Course NOT in source')
-        print('\n\n' + '_' * 100 + '\n\n')
-        print(record['course'])

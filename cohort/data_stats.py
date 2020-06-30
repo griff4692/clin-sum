@@ -13,7 +13,8 @@ pd.options.mode.chained_assignment = None
 from scipy.stats import describe
 from tqdm import tqdm
 
-notes_dir = '/nlp/projects/clinsum/notes_by_mrn'
+from constants import *
+from utils import *
 
 
 def render_dict(d, min_val=5):
@@ -23,21 +24,13 @@ def render_dict(d, min_val=5):
 
 
 def source_stats(mrn, num_visits=None, num_sources=None, note_types=None, note_titles=None, lock=None):
-    mrn_dir = os.path.join(notes_dir, mrn)
+    mrn_dir = os.path.join(out_dir, 'mrn', mrn)
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
-
-    try:
-        notes_df = pd.read_csv(notes_fn)
-    except pd.errors.EmptyDataError:
-        print('Empty notes DataFrame!')
-        return
-
-    source_notes = notes_df[notes_df['is_rel_source']]
-    source_notes.fillna({'title': 'N/A', 'note_type': 'N/A', 'account': 'N/A'}, inplace=True)
+    notes_df = pd.read_csv(notes_fn)
+    source_notes = notes_df[notes_df['is_source']]
+    source_notes = source_notes.fillna({'title': 'N/A', 'note_type': 'N/A'})
     n = source_notes.shape[0]
-
-    if n == 0:
-        return
+    assert n > 0
 
     num_source = source_notes['account'].value_counts().tolist()
     num_visit = len(num_source)
@@ -52,7 +45,7 @@ def source_stats(mrn, num_visits=None, num_sources=None, note_types=None, note_t
 
 
 if __name__ == '__main__':
-    mrns = os.listdir(notes_dir)
+    _, _, mrns = get_mrn_status_df('valid_example')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
@@ -93,9 +86,4 @@ if __name__ == '__main__':
         print('Stats for number of source notes per visit')
         print(num_sources_stats)
 
-    end_time = time()
-    minutes = (end_time - start_time) / 60.0
-    round_factor = 0
-    if minutes < 1:
-        round_factor = 2
-    print('Took {} minutes'.format(minutes, round(round_factor)))
+    duration(start_time)
