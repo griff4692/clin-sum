@@ -1,12 +1,15 @@
+import itertools
+import os
 import re
 import sys
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from constants import *
-from utils import *
+from cohort.constants import *
+from cohort.utils import *
 
 # Building Blocks
 BEGINNING = r'(?:^|\s{4,}|\t|\n)'
@@ -25,6 +28,7 @@ ALL_CAPS_NEWLINE = r'{}{}'.format(ALL_CAPS, NEWLINE)
 BEGIN_ALL_CAPS_NEWLINE = r'{}{}{}'.format(BEGINNING, ALL_CAPS, NEWLINE)
 ALL_CAPS_COLON = r'{}{}'.format(ALL_CAPS, COLON)
 
+HTML_REGEX = r'(<[a-z][^>]+>|<\/?[a-z]>)'
 HEADER_REGEX = r'({}|{}|{}|{}|{})'.format(
     BEGIN_MIXED_CAPS_COLON, BEGIN_ALL_CAPS_NEWLINE, ALL_CAPS_COLON, MIXED_CAPS_COURSE, LOWER_CASE_COURSE)
 ONLY_INLINE_HEADER_REGEX = r'({}|{}|{}|{})'.format(
@@ -50,6 +54,7 @@ def clean(text):
         line_strip = ''.join([x if ord(x) < 128 else '' for x in line]).strip()
         line_strip = re.sub(r'[-_.<\s]{10,}', ' ', line_strip)
         line_strip = re.sub(r'\s+\[retrieved for.*\]', '', line_strip)
+        line_strip = re.sub(r'[<>]+', ' ', line_strip)  # this is a special character for us (don't confuse)
         line_strip = re.sub(r'\s+', ' ', line_strip)
         if len(line_strip) > 0:
             cleaned.append(line_strip)
@@ -65,8 +70,7 @@ def _is_resolved_relevant(text, is_header, is_relevant_section):
         '|'.join(irrelevant_sections) + ')[A-z/ ]{0,' + str(MAX_HEADER_LEN // 2) + '}')
     is_relevant_subsection = re.match(unacceptable_subsection_regex, lower_str[:min(trunc_idx, MAX_HEADER_LEN)]) is None
 
-    # To add
-    # either it does not start with a section header or it is an allowable section header
+    # To add: either it does not start with a section header or it is an allowable section header
     to_add = (not is_header) or is_relevant_section or is_relevant_subsection
 
     # do we keep going? to_add and there are no black listed subsections hidden here
@@ -84,10 +88,28 @@ def _is_resolved_relevant(text, is_header, is_relevant_section):
     return to_add, to_continue, trunc_idx
 
 
-def extract_hospital_course(text):
+def section_split(text):
     sectioned_text = re.split(HEADER_REGEX, text, flags=re.M)
     sectioned_text = [x.lstrip() for x in sectioned_text if len(x.lstrip()) > 0]
     is_header_arr = list(map(lambda x: re.match(HEADER_REGEX, x, re.M) is not None, sectioned_text))
+    return sectioned_text, is_header_arr
+
+
+def sectionize(text):
+    sectioned_text, is_header_arr = section_split(text)
+    output_str = ''
+    n = len(sectioned_text)
+    for i, (is_header, t) in enumerate(zip(is_header_arr, sectioned_text)):
+        template = '<h> {} </h>' if is_header and len(t) < MAX_HEADER_LEN else '<p> {} </p>'
+        is_next_header = i < len(n) - 1 and is_header_arr[i + 1]
+        if is_header and is_next_header:
+            continue
+        output_str += template.format(t) + ' '
+    return output_str.strip()
+
+
+def extract_hospital_course(text):
+    sectioned_text, is_header_arr = section_split(text)
     is_relevant_section = list(map(
         lambda x: x[0] and x[1] is not None and 'course' in x[1].lower() and len(x[1]) < MAX_HEADER_LEN,
         zip(is_header_arr, sectioned_text)
@@ -127,4 +149,54 @@ def extract_hospital_course(text):
         if body_len >= MIN_TARGET_LEN:
             strs.append(course_str)
     strs = list(set(strs))
-    return ' '.join(map(lambda x: '<s> {} </s>'.format(x), strs))
+    return ' '.join(map(lambda x: '<c> {} </c>'.format(x), strs))
+
+
+def pack_sentences(text, key_str, values):
+    split_text = re.split(HTML_REGEX, text)
+    num_sent = 0
+    sent_idx = 0
+    toks = []
+    for i, str in enumerate(split_text):
+        str = str.strip()
+        if len(str) == 0:
+            continue
+        if str == '<s>':
+            str = '<s {}={}>'.format(key_str, values[sent_idx])
+            sent_idx += 1
+            num_sent += 1
+        toks.append(str)
+    assert len(values) == num_sent
+    return ' '.join(toks)
+
+
+def sent_toks_from_html(text, convert_lower=True):
+    return list(itertools.chain(*list(map(lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower)))))
+
+
+def sents_from_html(text, convert_lower=True):
+    if convert_lower:
+        text = text.lower()
+    split_text = re.split(HTML_REGEX, text)
+    is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
+    sents = []
+    for i, str in enumerate(split_text):
+        str = str.strip()
+        if len(str) == 0:
+            continue
+        is_sent_body = i > 0 and split_text[i -1] == '<s>'
+        if not is_tag[i] and is_sent_body:
+            sents.append(str)
+    return sents
+
+
+def resolve_course(text):
+    courses = list(map(lambda x: x.lstrip('<c>').rstrip('</c>').strip(), text.split('</c> <c>')))
+    max_len = 0
+    max_course = None
+    for course in courses:
+        cn = len(course)
+        if cn > max_len:
+            max_len = cn
+            max_course = course
+    return max_course

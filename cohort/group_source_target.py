@@ -9,9 +9,8 @@ import pandas as pd
 pd.options.mode.chained_assignment = None
 from tqdm import tqdm
 
-from extract_course import MIN_TARGET_LEN, extract_hospital_course, clean
-
 from constants import *
+from section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
 from utils import *
 
 
@@ -41,12 +40,12 @@ def process_source(source_records, account):
     source_str = ''
     seen = set()
     for record in source_records:
-        clean_str = clean(record['text']).strip()
-        if clean_str in seen:
+        clean_formatted_str = sectionize(clean(record['text']).strip())
+        if clean_formatted_str in seen:
             continue
-        seen.add(clean_str)
-        if len(clean_str) > 0:
-            source_str += '<d note_id={}> {} </d> '.format(record['note_id'], clean_str)
+        seen.add(clean_formatted_str)
+        if len(clean_formatted_str) > 0:
+            source_str += '<d note_id={}> {} </d> '.format(record['note_id'], clean_formatted_str)
     source_str = source_str.strip()
     if len(source_str) >= MIN_SOURCE_LEN:
         return '<e account={}> {} </e>'.format(str(account), source_str)
@@ -73,7 +72,7 @@ def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
         assert source_df.shape[0] > 0 and target_df.shape[0] > 0
         source_note_str = process_source(source_df.to_dict('records'), account)
         target_note_str = process_target(target_df.to_dict('records'), account)
-        if len(source_note_str) > 0 and len(target_note_str) > 0:
+        if len(source_note_str) > len(target_note_str) > 0:
             examples.append(
                 (mrn, account, len(source_note_str), len(target_note_str), source_note_str, target_note_str))
 

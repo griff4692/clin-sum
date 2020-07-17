@@ -1,7 +1,8 @@
 avro_fp = '/nlp/cdw/discovery_request_1342/notes_avro/all_docs_201406190000/'
 visit_fn = '/nlp/cdw/discovery_request_1342/structured/visits/visit_2004_2014.txt'
-out_dir = '/nlp/projects/clinsum_2'
+out_dir = '/nlp/projects/clinsum'
 med_code_fn = '/nlp/cdw/note_medcodes/notetype_loinc.txt'
+hiv_mrn_fn = '/nlp/projects/hiv_clinic_phenotyping/omop_data/output/cohort_data_files/mrn_person_id_list.pickle'
 
 MIN_YEAR = 2010
 MAX_YEAR = 2014
