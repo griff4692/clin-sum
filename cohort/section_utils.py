@@ -40,7 +40,8 @@ irrelevant_sections = [
     r'exam', r'medication', r'smh', r'social (history|hx)', r'\bpsh\b', r'family', r'complications?', r'plans?',
     r'follow[- ]?up', r'contact information', r'instructions', r'date', r'surgical history', r'impression', r'doctor',
     r'patient', r'\bmh\b', r'\bsh\b', r'\bfh\b', r'assessment', r'handout', r'\bdispo', r'\bpe\b', r'\bimag',
-    r'maintenance', r'measure', r'\bnote\b', r'\bvital', r'(on|at)? ?discharge', r'path(ology)?'
+    r'maintenance', r'measure', r'\bnote\b', r'\bvital', r'(on|at)? ?discharge', r'path(ology)?', r'authored',
+    r'assistant', r'allerg', r'physician', r'surgeon', r'appointment', r'schedul'
 ]
 
 
@@ -101,7 +102,7 @@ def sectionize(text):
     n = len(sectioned_text)
     for i, (is_header, t) in enumerate(zip(is_header_arr, sectioned_text)):
         template = '<h> {} </h>' if is_header and len(t) < MAX_HEADER_LEN else '<p> {} </p>'
-        is_next_header = i < len(n) - 1 and is_header_arr[i + 1]
+        is_next_header = i < n - 1 and is_header_arr[i + 1]
         if is_header and is_next_header:
             continue
         output_str += template.format(t) + ' '
@@ -171,22 +172,32 @@ def pack_sentences(text, key_str, values):
 
 
 def sent_toks_from_html(text, convert_lower=True):
-    return list(itertools.chain(*list(map(lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower)))))
+    return list(itertools.chain(*list(map(
+        lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower, extract_lr=False)))))
 
 
-def sents_from_html(text, convert_lower=True):
+def is_sent_tag(str):
+    return str.startswith('<s') and str.endswith('>')
+
+
+def sents_from_html(text, convert_lower=True, extract_lr=False):
     if convert_lower:
         text = text.lower()
     split_text = re.split(HTML_REGEX, text)
     is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
-    sents = []
+    sents, ranks = [], []
     for i, str in enumerate(split_text):
         str = str.strip()
         if len(str) == 0:
             continue
-        is_sent_body = i > 0 and split_text[i -1] == '<s>'
+        is_sent_body = i > 0 and is_sent_tag(split_text[i - 1])
         if not is_tag[i] and is_sent_body:
             sents.append(str)
+            if extract_lr:
+                lr_val = float(split_text[i - 1].split('=')[-1].strip('<>'))
+                ranks.append(lr_val)
+    if extract_lr:
+        return sents, np.array(ranks)
     return sents
 
 

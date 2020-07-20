@@ -132,3 +132,4 @@ dmypy.json
 data/
 lightning_logs/
 results/
+predictions/

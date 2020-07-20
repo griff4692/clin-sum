@@ -6,5 +6,5 @@
 4. `group_source_target`
 5. `splits`
 6. `tokenize_mrns`
-7. `extractive_fragments`
-8. `lex_rank`
+7. `pack_sents_lexrank`
+8. `extractive_fragments`
