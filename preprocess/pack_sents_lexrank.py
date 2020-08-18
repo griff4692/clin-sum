@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 from p_tqdm import p_uimap
 
-from cohort.constants import out_dir
-from cohort.section_utils import sents_from_html, pack_sentences
-from cohort.utils import get_mrn_status_df
+from preprocess.constants import out_dir
+from preprocess.section_utils import sents_from_html, pack_sentences
+from preprocess.utils import get_mrn_status_df
 
 
 class LexRank:
@@ -174,10 +174,6 @@ class LexRank:
 def rank_sents(mrn):
     example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
     example_df = pd.read_csv(example_fn)
-    if 'spacy_source_toks_packed' in example_df.columns:
-        # print('Skipping MRN={}.  Already ranked and packed lex rank scores for sentences.'.format(mrn))
-        return
-
     packed = []
     for record in example_df.to_dict('records'):
         sents = sents_from_html(record['spacy_source_toks'], convert_lower=True)
@@ -208,8 +204,7 @@ if __name__ == '__main__':
     stopwords = STOPWORDS['en']
     stopwords = stopwords.union([x for x in punctuation])
     lxr = LexRank(idf_score=idf_score_dd, stopwords=stopwords, default=idf['default'])
-
-    s = p_uimap(rank_sents, all_mrns)
+    s = p_uimap(rank_sents, all_mrns, num_cpus=0.33)
 
     print('Processed {} examples.'.format(sum(list(s))))
     print('Done!')

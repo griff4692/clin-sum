@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from cohort.constants import *
-from cohort.utils import *
+from preprocess.constants import *
+from preprocess.utils import *
 
 # Building Blocks
 BEGINNING = r'(?:^|\s{4,}|\t|\n)'

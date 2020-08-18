@@ -12,8 +12,8 @@ from scipy.stats import describe
 
 from constants import *
 from fragment_utils import Fragments
+from preprocess.utils import *
 from section_utils import resolve_course, sent_toks_from_html
-from cohort.utils import *
 
 DELIM = ' ||| '
 

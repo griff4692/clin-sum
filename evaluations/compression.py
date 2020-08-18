@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from cohort.constants import *
+from preprocess.constants import *
 
 
 MAX_N = 10000

@@ -17,10 +17,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from cohort.constants import out_dir
-from cohort.pack_sents_lexrank import LexRank
-from cohort.section_utils import sents_from_html, pack_sentences
-from cohort.utils import get_mrn_status_df
+from preprocess.constants import out_dir
+from preprocess.pack_sents_lexrank import LexRank
+from preprocess.section_utils import sents_from_html, pack_sentences
+from preprocess.utils import get_mrn_status_df
 
 
 def collect_targets(mrn):

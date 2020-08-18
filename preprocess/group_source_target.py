@@ -9,8 +9,8 @@ pd.options.mode.chained_assignment = None
 from p_tqdm import p_imap
 
 from constants import *
+from preprocesss.utils import *
 from section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
-from cohort.utils import *
 
 
 def stringify(x):

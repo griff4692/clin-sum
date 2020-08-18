@@ -5,7 +5,7 @@ from time import time
 
 import pandas as pd
 
-from cohort.constants import *
+from preprocess.constants import *
 
 
 def duration(start_time):

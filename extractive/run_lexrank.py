@@ -9,16 +9,17 @@ from string import punctuation
 import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 
+import argparse
 from lexrank import STOPWORDS
 from lexrank.algorithms.power_method import stationary_distribution
 from lexrank.utils.text import tokenize
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from p_tqdm import p_imap
 
-from cohort.constants import out_dir
-from cohort.section_utils import pack_sentences, resolve_course, sents_from_html, sent_toks_from_html
-from cohort.utils import get_mrn_status_df
+from preprocess.constants import out_dir
+from preprocess.section_utils import pack_sentences, resolve_course, sents_from_html, sent_toks_from_html
+from preprocess.utils import get_mrn_status_df
 
 
 def top_k_sents(packed_str, k=12, preserve_order=True):
@@ -34,7 +35,6 @@ def top_k_sents(packed_str, k=12, preserve_order=True):
 
 
 def gen_summaries(mrn):
-    i, mrn = mrn
     example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
     example_df = pd.read_csv(example_fn)
     if 'spacy_source_toks_packed' not in example_df.columns:
@@ -60,19 +60,25 @@ def gen_summaries(mrn):
             'ref_len': ref_len,
         })
 
-    if (i + 1) % 1000 == 0:
-        print('Processed {} examples'.format(i + 1))
     return outputs
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser('Script to generate Lexrank predictions')
+    parser.add_argument('--max_n', default=-1, type=int)
+
+    args = parser.parse_args()
+
     splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
     val_df = splits_df[splits_df['split'] == 'validation']
     val_mrns = val_df['mrn'].unique().tolist()
-    val_examples = val_df[['mrn', 'account']].to_dict('records')
-    pool = Pool()
-    outputs = list(filter(None, pool.map(gen_summaries, enumerate(val_mrns))))
+
+    if args.max_n > 0:
+        np.random.seed(1992)
+        val_mrns = np.random.choice(val_mrns, size=args.max_n, replace=False)
+
+    outputs = list(filter(None, p_imap(gen_summaries, val_mrns)))
     outputs_flat = list(itertools.chain(*outputs))
-    out_fn = os.path.join('predictions', 'lr_validation.csv')
+    out_fn = os.path.join(out_dir, 'predictions', 'lr_validation.csv')
     output_df = pd.DataFrame(outputs_flat)
     output_df.to_csv(out_fn, index=False)
