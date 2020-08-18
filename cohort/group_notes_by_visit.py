@@ -108,7 +108,7 @@ def join(mrn, valid_counter, invalid_counter, lock):
         n_dsums = dsums.shape[0]
         has_target = n_dsums >= 1
         has_source = False
-        dsum_timestamp = dsums['timestamp'].min() if has_target else None
+        dsum_timestamp = dsums['timestamp'].max() if has_target else None
 
         if has_target:
             for x, note_row in note_account_df.iterrows():

@@ -3,7 +3,6 @@ import itertools
 from functools import partial
 import json
 import math
-from multiprocessing import Pool, Manager
 import os
 from string import punctuation
 import sys
@@ -14,7 +13,7 @@ from lexrank.algorithms.power_method import stationary_distribution
 from lexrank.utils.text import tokenize
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from p_tqdm import p_uimap
 
 from cohort.constants import out_dir
 from cohort.section_utils import sents_from_html, pack_sentences
@@ -190,6 +189,7 @@ def rank_sents(mrn):
         packed.append(pack_sentences(record['spacy_source_toks'], 'lr', sent_scores))
     example_df['spacy_source_toks_packed'] = packed
     example_df.to_csv(example_fn, index=False)
+    return len(example_df)
 
 
 if __name__ == '__main__':
@@ -209,10 +209,7 @@ if __name__ == '__main__':
     stopwords = stopwords.union([x for x in punctuation])
     lxr = LexRank(idf_score=idf_score_dd, stopwords=stopwords, default=idf['default'])
 
-    p = Pool()
-    for _ in tqdm(p.imap_unordered(rank_sents, all_mrns), total=len(all_mrns)):
-        pass
-    p.close()
-    p.join()
+    s = p_uimap(rank_sents, all_mrns)
 
+    print('Processed {} examples.'.format(sum(list(s))))
     print('Done!')

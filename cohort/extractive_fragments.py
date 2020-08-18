@@ -1,20 +1,19 @@
 from collections import defaultdict, Counter
 from functools import partial
 import os
-from multiprocessing import Manager, Pool, Value
 import re
 import string
 from time import time
 
 import numpy as np
 import pandas as pd
+from p_tqdm import p_uimap
 from scipy.stats import describe
-from tqdm import tqdm
 
 from constants import *
 from fragment_utils import Fragments
 from section_utils import resolve_course, sent_toks_from_html
-from utils import *
+from cohort.utils import *
 
 DELIM = ' ||| '
 
@@ -36,14 +35,16 @@ def frags(source_toks, target_toks):
     return obj
 
 
-def get_extractive_fragments(mrn, mrn_counter=None, lock=None):
+def get_extractive_fragments(mrn):
     mrn_dir = os.path.join(out_dir, 'mrn', mrn)
     examples_fn = os.path.join(mrn_dir, 'examples.csv')
     examples_df = pd.read_csv(examples_fn)
 
-    examples_df.dropna(inplace=True)
-    assert examples_df.shape[0] > 0
+    examples_df.dropna(subset=['spacy_source_toks', 'spacy_target_toks'], inplace=True)
     frag_dicts = defaultdict(list)
+    if examples_df.shape[0] == 0:
+        print('MRN={} has no valid tokens'.format(mrn))
+        return frag_dicts
     for example in examples_df.to_dict('records'):
         source_toks = sent_toks_from_html(example['spacy_source_toks'])
         target_toks = sent_toks_from_html(resolve_course(example['spacy_target_toks']))
@@ -55,11 +56,6 @@ def get_extractive_fragments(mrn, mrn_counter=None, lock=None):
         examples_df[k] = v
     examples_df.to_csv(examples_fn, index=False)
 
-    with lock:
-        mrn_counter.value += 1
-        if mrn_counter.value % 1000 == 0:
-            print('Processed {} MRNs'.format(mrn_counter.value))
-
     return frag_dicts
 
 
@@ -68,23 +64,18 @@ if __name__ == '__main__':
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    with Manager() as manager:
-        pool = Pool(processes=1)  # By default pool will size depending on cores available
-        mrn_counter = manager.Value('i', 0)
-        lock = manager.Lock()
-        outputs = pool.map(
-            partial(
-                get_extractive_fragments, mrn_counter=mrn_counter, lock=lock
-            ), mrns)
-        pool.close()
-        pool.join()
-
+    outputs = list(p_uimap(get_extractive_fragments, mrns))
     duration(start_time)
-    stats = ['compression', 'coverage', 'density']
-    vals = [[], [], []]
+    stat_names = ['compression', 'coverage', 'density']
+    stats = defaultdict(list)
     for output in outputs:
-        for i, stat in enumerate(stats):
-            vals[i] += output[stat]
-    for stat, val in zip(stats, vals):
+        for stat in stat_names:
+            stats[stat] += output[stat]
+
+    df = pd.DataFrame(stats)
+    out_fn = '../evaluations/results/extractiveness.csv'
+    df.to_csv(out_fn, index=False)
+
+    for stat, vals in stats.items():
         print('Statistic={}...'.format(stat))
-        print('\t', describe(val))
+        print('\t', describe(vals))

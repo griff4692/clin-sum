@@ -8,6 +8,7 @@ from time import time
 
 import numpy as np
 import pandas as pd
+from p_tqdm import p_imap
 from sklearn.model_selection import train_test_split
 
 from constants import *
@@ -43,26 +44,23 @@ def validate_splits(splits):
 
 
 if __name__ == '__main__':
+    print('Loading valid examples...')
     _, _, mrns = get_mrn_status_df('valid_example')
+    print('Getting HIV patients...')
     with open(hiv_mrn_fn, 'rb') as fd:
         hiv_mrns = set(pickle.load(fd)['mrn'].unique().tolist())
 
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    with Manager() as manager:
-        pool = Pool()  # By default pool will size depending on cores available
-        mrn_counter = manager.Value('i', 0)
-        lock = manager.Lock()
-        output = pool.map(collect_valid_accounts, mrns)
-        pool.close()
-        pool.join()
+
+    output = p_imap(collect_valid_accounts, mrns, num_cpus=0.5)
+    flattened_output = list(itertools.chain(*output))
 
     duration(start_time)
     print('Computing train/val/test splits...')
-    train_mrns, other = train_test_split(mrns, train_size=0.7)
+    train_mrns, other = train_test_split(mrns, train_size=0.9)
     val_mrns, test_mrns = train_test_split(other, train_size=0.5)
-
     splits = {
         'train': set(train_mrns),
         'validation': set(val_mrns),
@@ -73,7 +71,6 @@ if __name__ == '__main__':
     validate_splits(splits)
 
     print('Assigning specific visits to train-test-validation based on MRN splits...')
-    flattened_output = list(itertools.chain(*output))
     df = pd.DataFrame(flattened_output)
     df['mrn'] = df['mrn'].astype('str')
     df['split'] = df['mrn'].apply(lambda mrn: determine_split(mrn, train_mrns, val_mrns, test_mrns))

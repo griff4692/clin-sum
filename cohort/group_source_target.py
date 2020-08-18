@@ -1,17 +1,16 @@
 from datetime import datetime
 from functools import partial
 import os
-from multiprocessing import Pool, Manager
 import re
 from time import time
 
 import pandas as pd
 pd.options.mode.chained_assignment = None
-from tqdm import tqdm
+from p_tqdm import p_imap
 
 from constants import *
 from section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
-from utils import *
+from cohort.utils import *
 
 
 def stringify(x):
@@ -52,7 +51,7 @@ def process_source(source_records, account):
     return ''
 
 
-def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
+def generate_examples(mrn):
     mrn_dir = os.path.join(out_dir, 'mrn', mrn)
     valid_accounts_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
@@ -76,15 +75,6 @@ def generate_examples(mrn, valid_counter=None, invalid_counter=None, lock=None):
             examples.append(
                 (mrn, account, len(source_note_str), len(target_note_str), source_note_str, target_note_str))
 
-            with lock:
-                valid_counter.value += 1
-                if valid_counter.value % 10000 == 0:
-                    print('Dsums with Hospital Course={}. {} without.'.format(
-                        valid_counter.value, invalid_counter.value))
-        else:
-            with lock:
-                invalid_counter.value += 1
-
     if len(examples) > 0:
         df = pd.DataFrame(examples, columns=['mrn', 'account', 'source_len', 'target_len', 'source_str', 'target_str'])
         df.to_csv(examples_fn, index=False)
@@ -97,20 +87,6 @@ if __name__ == '__main__':
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    with Manager() as manager:
-        valid_counter = manager.Value('i', 0)
-        invalid_counter = manager.Value('i', 0)
-        lock = manager.Lock()
-        pool = Pool()  # By default pool will size depending on cores available
-        statuses = pool.map(
-            partial(generate_examples, valid_counter=valid_counter, invalid_counter=invalid_counter, lock=lock),
-            mrns
-        )
-        pool.close()
-        pool.join()
-
-        print('Visits with Hospital Course in dsum={}.'.format(valid_counter.value))
-        print('Visits without Hospital Course in dsum={}.'.format(invalid_counter.value))
-
+    statuses = p_imap(generate_examples, mrns)
     update_mrn_status_df(mrn_status_df, list(statuses), mrn_valid_idxs, 'valid_example')
     duration(start_time)

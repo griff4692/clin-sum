@@ -3,6 +3,7 @@ from collections import defaultdict, Counter
 from functools import partial
 import os
 from multiprocessing import Manager, Pool, Value
+from statistics import harmonic_mean
 from time import time
 import warnings
 
@@ -19,9 +20,10 @@ from constants import *
 from utils import *
 
 
-def calculate_pr(mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=None, lock=None):
+def calculate_pr(
+        mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=None, full_mrns=None, accounts=None, lock=None):
     mrn_dir = os.path.join(out_dir, 'mrn', mrn)
-    entities_fn = os.path.join(mrn_dir,  'entities.csv')
+    entities_fn = os.path.join(mrn_dir, 'entities.csv')
     notes_fn = os.path.join(mrn_dir, 'notes.csv')
 
     if not os.path.exists(entities_fn):
@@ -34,6 +36,8 @@ def calculate_pr(mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=N
     assert n_entities > 0
     e_cols = set(entities_df.columns)
     notes_df = pd.read_csv(notes_fn)
+    notes_df.dropna(subset=['account'], inplace=True)
+    notes_df['account'] = notes_df['account'].astype('int')
 
     notes_df['note_id'] = notes_df['note_id'].astype('str')
     n_cols = set(notes_df.columns)
@@ -42,13 +46,19 @@ def calculate_pr(mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=N
     entities_df = entities_df[e_cols_red]
     entities_df['note_id'] = entities_df['note_id'].astype('str')
     join_df = entities_df.merge(notes_df, how='inner', on='note_id')
-    accounts = join_df['account'].unique().tolist()
+    join_df.dropna(subset=['account'], inplace=True)
+
+    examples_fn = os.path.join(mrn_dir, 'examples.csv')
+    valid_accounts = set(pd.read_csv(examples_fn)['account'].tolist())
+    join_df = join_df[join_df['account'].isin(valid_accounts)]
+    assert len(join_df) > 0
+
+    mrn_accounts = join_df['account'].unique().tolist()
     cui_type_map = join_df.set_index('cui')['umls_type'].to_dict()
     types = defaultdict(list)
     rs, ps = [], []
-    for account in accounts:
+    for account in mrn_accounts:
         account_df = join_df[join_df['account'] == account]
-
         source_df = account_df[account_df['is_source']]
         target_df = account_df[account_df['is_target']]
         target_df['len'] = target_df['text'].apply(lambda x: len(x))
@@ -86,6 +96,8 @@ def calculate_pr(mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=N
     with lock:
         recalls += rs
         precisions += ps
+        full_mrns += ([mrn] * len(rs))
+        accounts += mrn_accounts
         mrn_ct.value += 1
         if mrn_ct.value % 1000 == 0:
             r_mean = sum(recalls) / float(len(recalls))
@@ -96,7 +108,13 @@ def calculate_pr(mrn, mrn_ct=None, not_ready_ct=None, recalls=None, precisions=N
 
 
 if __name__ == '__main__':
-    _, _, mrns = get_mrn_status_df('valid_example')
+    # _, _, mrns = get_mrn_status_df('valid_example')
+
+    # TODO replace for full dataset
+    splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
+    val_df = splits_df[splits_df['split'] == 'validation']
+    mrns = val_df['mrn'].unique().astype('str').tolist()
+
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
@@ -105,12 +123,14 @@ if __name__ == '__main__':
         lock = manager.Lock()
         recalls = manager.list()
         precisions = manager.list()
+        full_mrns = manager.list()
+        accounts = manager.list()
         mrn_ct = manager.Value('i', 0)
         not_ready_ct = manager.Value('i', 0)
         type_counts = list(pool.map(
             partial(
                 calculate_pr, mrn_ct=mrn_ct, not_ready_ct=not_ready_ct, recalls=recalls,
-                precisions=precisions, lock=lock
+                precisions=precisions, full_mrns=full_mrns, accounts=accounts, lock=lock
             ), mrns))
         pool.close()
         pool.join()
@@ -120,6 +140,22 @@ if __name__ == '__main__':
 
         print('Precision stats...')
         print(describe(precisions))
+
+        recalls = list(recalls)
+        precisions = list(precisions)
+        full_mrns = list(full_mrns)
+        accounts = list(accounts)
+    f1s = list(map(harmonic_mean, zip(recalls, precisions)))
+
+    pr_df = pd.DataFrame({
+        'mrn': full_mrns,
+        'account': accounts,
+        'recall': recalls,
+        'precision': precisions,
+        'f1': f1s
+    })
+    pr_fn = os.path.join(out_dir, 'umls_pr.csv')
+    pr_df.to_csv(pr_fn, index=False)
 
     overlap_types = []
     source_only_types = []
