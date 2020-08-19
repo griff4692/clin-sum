@@ -7,4 +7,7 @@ pandas
 p_tqdm
 rank_bm25
 rouge_score
+spacy
+scispacy
+en_core_sci_lg
 test_tube
