@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import os
 import multiprocessing
 import pickle
@@ -8,13 +9,13 @@ import argparse
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence, pad_packed_sequence
 from torch.utils.data import DataLoader
 
 from extractive.neusum.data_utils import collate_fn, SingleExtractionDataset
 from extractive.neusum.vocab import Vocab
 from preprocess.generate_extractive_mmr_samples import Example
-from torch.nn.utils.rnn import pad_sequence
 
 
 class NeuSum(pl.LightningModule):
@@ -22,7 +23,6 @@ class NeuSum(pl.LightningModule):
         super(NeuSum, self).__init__()
         self.vocab = vocab
         self.args = args
-        self.loss_func = nn.KLDivLoss(reduction='batchmean')
         self.embedding = nn.Embedding(len(vocab), embedding_dim=args.embedding_dim)
         self.source_sent_encoder = nn.GRU(
             args.embedding_dim, hidden_size=args.hidden_dim, bidirectional=False, batch_first=True
@@ -90,14 +90,16 @@ class NeuSum(pl.LightningModule):
         return score_dist
 
     def training_step(self, batch, batch_idx):
-        source_ids_flat_pad, sum_ids_flat_pad, target_dist_pad, counts = batch
+        source_ids_flat_pad, sum_ids_flat_pad, y, counts = batch
         y_hat = self(source_ids_flat_pad, sum_ids_flat_pad, counts)
+        loss_val = F.kl_div(y_hat, y, log_target=False, reduction='batchmean')
+        tqdm_dict = {'train_loss': loss_val}
+        output = OrderedDict(
+            {'loss': loss_val, 'progress_bar': tqdm_dict, 'log': tqdm_dict}
+        )
 
-        print(y_hat.size(), target_dist_pad.size())
-        y_log = torch.log(target_dist_pad)
-        y_hat_log = torch.log(y_hat)
-        loss = self.loss_func(y_hat_log, y_log)
-        return loss
+        # can also return just a scalar instead of a dict (return loss_val)
+        return output
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self['lr'])

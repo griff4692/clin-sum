@@ -82,6 +82,7 @@ class SingleExtractionDataset(Dataset):
         curr_sum_sents = curr_sum_sents[:min(len(curr_sum_sents), MAX_CURR_SUM_SENTS)]
         n = len(source_sents)
         if n > MAX_SOURCE_SENTS:
+            np.random.seed(1992)
             sample_idxs = np.random.choice(range(n), size=MAX_SOURCE_SENTS, p=softmax(rel_rouges), replace=False)
             rel_rouges = np.array([rel_rouges[idx] for idx in sample_idxs])
             source_sents = [source_sents[idx] for idx in sample_idxs]
