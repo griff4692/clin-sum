@@ -5,9 +5,10 @@ numpy
 nlp
 pandas
 p_tqdm
+pytorch_lightning
 rank_bm25
 rouge_score
 spacy
 scispacy
-en_core_sci_lg
+https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.2.5/en_core_sci_lg-0.2.5.tar.gz
 test_tube

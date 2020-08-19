@@ -62,7 +62,7 @@ def generate_samples(mrn):
             for i in range(len(scores)):
                 if i not in included_sent_idxs:
                     eligible_scores.append(scores[i])
-                    eligible_source_sents.append(source_sents[i])
+                    eligible_source_sents.append(source_sents_no_stop[i])
             # Example
             example_rouge = curr_rouge
             example = Example(
