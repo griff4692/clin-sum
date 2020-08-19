@@ -1,14 +1,13 @@
 from collections import defaultdict, Counter
 from functools import partial
 import os
-from multiprocessing import Manager, Pool, Value
 import re
 from time import time
 
 import numpy as np
 import pandas as pd
-import spacy
 from p_tqdm import p_uimap
+import spacy
 from transformers import AutoTokenizer
 
 from constants import *
