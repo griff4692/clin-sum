@@ -107,7 +107,7 @@ if __name__ == '__main__':
         mrns = np.random.choice(mrns, size=size, replace=False)
     n = len(mrns)
     print('Processing {} mrns'.format(n))
-    if True:  # args.max_n < 100:
+    if args.max_n < 100:
         single_extraction_examples = list(tqdm(map(generate_samples, mrns), total=len(mrns)))
     else:
         single_extraction_examples = list(p_uimap(generate_samples, mrns))
