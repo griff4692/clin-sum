@@ -2,6 +2,7 @@ from collections import defaultdict
 import os
 import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+import string
 from time import sleep
 
 import argparse
@@ -15,7 +16,7 @@ from preprocess.constants import out_dir
 from utils import decode_utf8
 
 
-STOPWORDS = set(stopwords.words('english'))
+STOPWORDS = set(stopwords.words('english')).union(string.punctuation)
 
 
 def compute(predictions, references, rouge_types=None, use_agregator=True):

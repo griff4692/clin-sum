@@ -55,7 +55,7 @@ class SingleExtractionDataset(Dataset):
             'sum_ids': sum_ids,
             'source_ids': source_ids,
             'target_dist': target_dist,
-            'rel_rouges': rel_rouges
+            'rel_rouges': rel_rouges,
         }
 
     def __len__(self):
