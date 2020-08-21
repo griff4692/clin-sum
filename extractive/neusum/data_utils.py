@@ -13,8 +13,9 @@ from preprocess.generate_extractive_mmr_samples import Example
 from preprocess.constants import out_dir
 from extractive.neusum.vocab import Vocab
 
-MAX_CURR_SUM_SENTS = 20
-MAX_SOURCE_SENTS = 200
+MAX_SENT_LEN = 30
+MAX_CURR_SUM_SENTS = 30
+MAX_SOURCE_SENTS = 100
 LABEL_TEMP = 10.0
 
 
@@ -63,32 +64,59 @@ def collate_fn(batch):
     return source_ids_flat_pad, sum_ids_flat_pad, target_dist_pad, counts
 
 
+def truncate(str, max_len):
+    arr = str.split(' ')
+    end_idx = min(len(arr), max_len)
+    return arr[:end_idx]
+
+
 class SingleExtractionDataset(Dataset):
     def __init__(self, vocab):
-        in_fn = os.path.join(out_dir, 'single_extraction_labels.pk')
+        # in_fn = os.path.join(out_dir, 'single_extraction_labels.pk')
+        in_fn = 'data/single_extraction_labels.pk'
         with open(in_fn, 'rb') as fd:
             self.examples = pickle.load(fd)
         self.vocab = vocab
+        self.vocab.add_token('<s>')
 
     def str_to_ids(self, str):
-        return self.vocab.get_ids(str.split(' '))
+        return self.to_ids(str.split(' '))
+
+    def to_ids(self, arr):
+        return self.vocab.get_ids(arr)
 
     def __getitem__(self, item):
         example = self.examples[item]
         source_sents = example.candidate_source_sents
-        rel_rouges = np.array(example.target_rouges) - example.curr_rouge
-        curr_sum_sents = example.curr_sum_sents
+        rouges = example.target_rouges
+        seen = set()
+        source_sents_dedup = []
+        rouges_dedup = []
+        for rouge, source_sent in zip(rouges, source_sents):
+            if source_sent in seen:
+                continue
+            else:
+                source_sents_dedup.append(source_sent)
+                rouges_dedup.append(rouge)
+                seen.add(source_sent)
 
+        source_sents_dedup = [truncate(x, MAX_SENT_LEN) for x in source_sents_dedup]
+        if len(example.curr_sum_sents) == 0:
+            curr_sum_sents = [['<s>']]
+        else:
+            curr_sum_sents = [truncate(x, MAX_SENT_LEN) for x in example.curr_sum_sents]
+
+        rel_rouges = np.array(rouges_dedup) - example.curr_rouge
         curr_sum_sents = curr_sum_sents[:min(len(curr_sum_sents), MAX_CURR_SUM_SENTS)]
-        n = len(source_sents)
+        n = len(source_sents_dedup)
         if n > MAX_SOURCE_SENTS:
             np.random.seed(1992)
             sample_idxs = np.random.choice(range(n), size=MAX_SOURCE_SENTS, p=softmax(rel_rouges), replace=False)
             rel_rouges = np.array([rel_rouges[idx] for idx in sample_idxs])
-            source_sents = [source_sents[idx] for idx in sample_idxs]
+            source_sents_dedup = [source_sents_dedup[idx] for idx in sample_idxs]
         target_dist = softmax(min_max_norm(rel_rouges), temp=LABEL_TEMP)
-        sum_ids = list(map(self.str_to_ids, curr_sum_sents))
-        source_ids = list(map(self.str_to_ids, source_sents))
+        sum_ids = list(map(self.to_ids, curr_sum_sents))
+        source_ids = list(map(self.to_ids, source_sents_dedup))
         return {
             'sum_ids': sum_ids,
             'source_ids': source_ids,

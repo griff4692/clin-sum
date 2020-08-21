@@ -24,22 +24,22 @@ class NeuSum(pl.LightningModule):
         self.vocab = vocab
         self.args = args
         self.embedding = nn.Embedding(len(vocab), embedding_dim=args.embedding_dim)
-        self.source_sent_encoder = nn.GRU(
-            args.embedding_dim, hidden_size=args.hidden_dim, bidirectional=False, batch_first=True
+        self.source_sent_encoder = nn.LSTM(
+            args.embedding_dim, hidden_size=args.hidden_dim, bidirectional=True, batch_first=True
         )
-        self.source_doc_encoder = nn.GRU(
-            args.hidden_dim, hidden_size=args.hidden_dim, bidirectional=False, batch_first=True
-        )
-
-        self.sum_sent_encoder = nn.GRU(
-            args.embedding_dim, hidden_size=args.hidden_dim, bidirectional=False, batch_first=True
+        self.source_doc_encoder = nn.LSTM(
+            args.hidden_dim * 2, hidden_size=args.hidden_dim, bidirectional=True, batch_first=True
         )
 
-        self.sum_doc_encoder = nn.GRU(
-            args.hidden_dim, hidden_size=args.hidden_dim, bidirectional=False, batch_first=True
+        self.sum_sent_encoder = nn.LSTM(
+            args.embedding_dim, hidden_size=args.hidden_dim, bidirectional=True, batch_first=True
         )
 
-        s_dim = args.hidden_dim * 2
+        self.sum_doc_encoder = nn.LSTM(
+            args.hidden_dim * 2, hidden_size=args.hidden_dim, bidirectional=True, batch_first=True
+        )
+
+        s_dim = args.hidden_dim * 4
         self.scorer = nn.Sequential(
             nn.Linear(s_dim, s_dim),
             nn.Tanh(),
@@ -48,16 +48,20 @@ class NeuSum(pl.LightningModule):
             nn.Linear(s_dim, 1),
         )
 
+        self.cel = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax(dim=1)
 
     def __getitem__(self, item):
         return getattr(self.args, item)
 
     def hier_encode(self, ids, sent_lens, seq_lens, sent_rnn, doc_rnn):
+        n = len(ids)
         embeds = self.embedding(ids)
         packed_embeds = pack_padded_sequence(embeds, sent_lens, batch_first=True, enforce_sorted=False)
         _, sent_h_flat = sent_rnn(packed_embeds)
-        sent_h_flat = sent_h_flat.squeeze(0)
+        if type(sent_h_flat) == tuple:
+            sent_h_flat = sent_h_flat[0]
+        sent_h_flat = sent_h_flat.transpose(1, 0).contiguous().view(n, -1)
 
         sent_h = []
         start_idx = 0
@@ -69,30 +73,33 @@ class NeuSum(pl.LightningModule):
         docs_packed = pack_padded_sequence(
             padded_sent_h, seq_lens, batch_first=True, enforce_sorted=False)
         sent_modeled_packed_h, _ = doc_rnn(docs_packed)
-        sent_modeled_h, doc_h = pad_packed_sequence(sent_modeled_packed_h, batch_first=True)
+        sent_modeled_h, _ = pad_packed_sequence(sent_modeled_packed_h, batch_first=True)
 
         joint_output = torch.cat([padded_sent_h, sent_modeled_h], dim=-1)
-        return joint_output, doc_h
+        return joint_output
 
     def forward(self, source_ids, sum_ids, counts):
-        source_h, _ = self.hier_encode(
+        source_h = self.hier_encode(
             source_ids, counts['source_sent_lens_flat'], counts['source_lens'], self.source_sent_encoder,
             self.source_doc_encoder
         )
 
-        # _, doc_h = self.hier_encode(
+        # sum_h = self.hier_encode(
         #     sum_ids, counts['sum_sent_lens_flat'], counts['sum_lens'], self.sum_sent_encoder,
         #     self.sum_doc_encoder
         # )
 
         scores = self.scorer(source_h).squeeze(-1)
-        score_dist = self.softmax(scores)
-        return score_dist
+        # score_dist = self.softmax(scores)
+        return scores  # score_dist
 
     def training_step(self, batch, batch_idx):
         source_ids_flat_pad, sum_ids_flat_pad, y, counts = batch
+        y_amax = y.argmax(dim=1)
         y_hat = self(source_ids_flat_pad, sum_ids_flat_pad, counts)
-        loss_val = F.kl_div(y_hat, y, log_target=False, reduction='batchmean')
+        # loss_val = F.kl_div(y_hat, y, log_target=False, reduction='batchmean')
+
+        loss_val = self.cel(y_hat, y_amax)
         tqdm_dict = {'train_loss': loss_val}
         output = OrderedDict(
             {'loss': loss_val, 'progress_bar': tqdm_dict, 'log': tqdm_dict}
