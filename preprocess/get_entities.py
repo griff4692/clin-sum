@@ -51,8 +51,10 @@ def extract_entities(mrn):
         return
 
     valid_accounts = set(pd.read_csv(valid_accounts_fn)['account'].tolist())
-    # if os.path.exists(entities_fn):
-    #     return
+    if os.path.exists(entities_fn):
+        cols = open(entities_fn, 'r').readline().strip()
+        if cols == 'mrn,account,is_target,is_source,note_id,name,cui':
+            return
 
     notes_df = pd.read_csv(notes_fn)
     valid_notes_df = notes_df[notes_df['account'].isin(valid_accounts)]
@@ -100,7 +102,5 @@ if __name__ == '__main__':
 
     print('Processing {} mrns'.format(n))
     start_time = time()
-    ents = p_uimap(extract_entities, mrns, num_cpus=0.5)
-    num_ents = sum(list(ents))
-    print('Extracted {} entities'.format(num_ents))
+    p_uimap(extract_entities, mrns, num_cpus=0.8)
     duration(start_time)
