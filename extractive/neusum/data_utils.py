@@ -101,9 +101,15 @@ class SingleExtractionDataset(Dataset):
 
 
 if __name__ == '__main__':
-    print('Loading vocabulary...')
-    with open('data/vocab_num_template.pk', 'rb') as fd:
-        vocab = pickle.load(fd)
-    print('Constructing dataset')
-    dataset = SingleExtractionDataset(vocab)
-    print(dataset[0])
+    # print('Loading vocabulary...')
+    # with open('data/vocab_num_template.pk', 'rb') as fd:
+    #     vocab = pickle.load(fd)
+    # print('Constructing dataset')
+    # dataset = SingleExtractionDataset(vocab)
+    # print(dataset[0])
+
+    in_fn = os.path.join(out_dir, 'single_extraction_labels.pk')
+    with open(in_fn, 'rb') as fd:
+        examples = pickle.load(fd)
+
+    print([x.curr_sum_sents for x in examples])
