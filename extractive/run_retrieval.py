@@ -19,7 +19,7 @@ from p_tqdm import p_uimap
 
 from preprocess.constants import out_dir
 from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_from_html
-from preprocess.utils import get_mrn_status_df
+from preprocess.utils import *
 
 
 def gen_query(toks, max_q=20):
@@ -34,35 +34,28 @@ def gen_query(toks, max_q=20):
     return toks[:end_idx]
 
 
-def gen_summaries(mrn):
-    example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
-    example_df = pd.read_csv(example_fn)
-    records = example_df.to_dict('records')
-    outputs = []
-    for record in records:
-        target_sents = sents_from_html(resolve_course(record['spacy_target_toks']), convert_lower=True)
-        summary_sents = list(map(
-            lambda sent: bm25.get_top_n(gen_query(sent.split(' ')), corpus, n=1)[0],
-            target_sents
-        ))
+def gen_summaries(record):
+    target_sents = sents_from_html(resolve_course(record['spacy_target_toks']), convert_lower=True)
+    summary_sents = list(map(
+        lambda sent: bm25.get_top_n(gen_query(sent.split(' ')), corpus, n=1)[0],
+        target_sents
+    ))
 
-        n = len(target_sents)
+    n = len(target_sents)
 
-        reference = ' <s> '.join(target_sents).strip()
-        summary = ' <s> '.join(summary_sents).strip()
-        ref_len = len(reference.split(' ')) - n  # subtract pseudo sentence tokens
-        sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
+    reference = ' <s> '.join(target_sents).strip()
+    summary = ' <s> '.join(summary_sents).strip()
+    ref_len = len(reference.split(' ')) - n  # subtract pseudo sentence tokens
+    sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
 
-        outputs.append({
-            'account': record['account'],
-            'mrn': record['mrn'],
-            'prediction': summary,
-            'reference': reference,
-            'sum_len': sum_len,
-            'ref_len': ref_len,
-        })
-
-    return outputs
+    return {
+        'account': record['account'],
+        'mrn': record['mrn'],
+        'prediction': summary,
+        'reference': reference,
+        'sum_len': sum_len,
+        'ref_len': ref_len,
+    }
 
 
 if __name__ == '__main__':
@@ -71,13 +64,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
-    val_df = splits_df[splits_df['split'] == 'validation']
-    val_mrns = val_df['mrn'].unique().tolist()
+    validation_df = get_records(type='validation')
+    validation_records = validation_df.to_dict('records')
 
     if args.max_n > 0:
         np.random.seed(1992)
-        val_mrns = np.random.choice(val_mrns, size=args.max_n, replace=False)
+        validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
     print('Loading BM25...')
     bm25_fn = os.path.join(out_dir, 'bm25.pk')
@@ -89,8 +81,7 @@ if __name__ == '__main__':
     corpus = pd.read_csv(train_sents_fn).sents.tolist()
 
     print('Let\'s retrieve!')
-    outputs = list(filter(None, p_uimap(gen_summaries, val_mrns)))
-    outputs_flat = list(itertools.chain(*outputs))
+    outputs = list(filter(None, p_uimap(gen_summaries, validation_records)))
     out_fn = os.path.join(out_dir, 'predictions', 'retrieval_validation.csv')
-    output_df = pd.DataFrame(outputs_flat)
+    output_df = pd.DataFrame(outputs)
     output_df.to_csv(out_fn, index=False)

@@ -38,7 +38,7 @@ def create_lexranker():
     target_docs = list(itertools.chain(*target_docs))
     print('Precomputing target IDF...')
     stopwords = STOPWORDS['en']
-    stopwords = stopwords.union([x for x in punctuation])
+    stopwords = stopwords.union(set([x for x in punctuation]))
     lxr = LexRank(target_docs, stopwords=stopwords)
     return lxr
 

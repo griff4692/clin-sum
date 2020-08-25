@@ -6,10 +6,11 @@ import string
 from time import sleep
 
 import argparse
-from nlp import load_metric
 import numpy as np
 from nltk.corpus import stopwords
 import pandas as pd
+from p_tqdm import p_imap
+from tqdm import tqdm
 from rouge_score import rouge_scorer
 
 from preprocess.constants import out_dir
@@ -19,24 +20,24 @@ from utils import decode_utf8
 STOPWORDS = set(stopwords.words('english')).union(string.punctuation)
 
 
-def compute(predictions, references, rouge_types=None, use_agregator=True):
+def compute(predictions, references, rouge_types=None, use_aggregator=True, use_parallel=False):
     if rouge_types is None:
         rouge_types = ['rouge1']
 
     scorer = rouge_scorer.RougeScorer(rouge_types=rouge_types, use_stemmer=False)
-    if use_agregator:
-        aggregator = rouge_scorer.scoring.BootstrapAggregator()
+    aggregator = rouge_scorer.scoring.BootstrapAggregator() if use_aggregator else None
+    if not use_aggregator and use_parallel:
+        scores = list(p_imap(lambda x: scorer.score(x[0], x[1]), list(zip(references, predictions))))
     else:
         scores = []
+        for i in range(len(references)):
+            score = scorer.score(references[i], predictions[i])
+            if use_aggregator:
+                aggregator.add_scores(score)
+            else:
+                scores.append(score)
 
-    for ref, pred in zip(references, predictions):
-        score = scorer.score(ref, pred)
-        if use_agregator:
-            aggregator.add_scores(score)
-        else:
-            scores.append(score)
-
-    if use_agregator:
+    if use_aggregator:
         result = aggregator.aggregate()
     else:
         result = {}
@@ -55,7 +56,7 @@ def remove_stopwords(str):
     return ' '.join([t for t in tok if not t in STOPWORDS])
 
 
-def max_rouge_set(target, source_sents, rouge_type='rouge2'):
+def max_rouge_set(target, source_sents, rouge_types):
     n = len(source_sents)
     target_no_stop = prepare_str_for_rouge(target)
     source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
@@ -65,7 +66,7 @@ def max_rouge_set(target, source_sents, rouge_type='rouge2'):
     rouges = []
     for _ in range(n):
         _, idx, score = max_rouge_sent(
-            target_no_stop, source_sents_no_stop, rouge_type=rouge_type, return_score=True, source_prefix=curr_sum,
+            target_no_stop, source_sents_no_stop, rouge_types, return_score=True, source_prefix=curr_sum,
             mask_idxs=sent_order
         )
         if score <= curr_rouge:
@@ -77,13 +78,13 @@ def max_rouge_set(target, source_sents, rouge_type='rouge2'):
     return sent_order, rouges
 
 
-def max_rouge_sent(target, source_sents, rouge_type='rougeL', return_score=False, source_prefix='', mask_idxs=[]):
+def max_rouge_sent(target, source_sents, rouge_types, return_score=False, source_prefix='', mask_idxs=[]):
     n = len(source_sents)
     predictions = [source_prefix + s for s in source_sents]
     references = [target for _ in range(n)]
     outputs = compute(
-        predictions=predictions, references=references, rouge_types=[rouge_type], use_agregator=False)
-    scores = np.array(list(map(lambda x: x.fmeasure, outputs[rouge_type])))
+        predictions=predictions, references=references, rouge_types=rouge_types, use_aggregator=False)
+    scores = np.array([sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
     if len(mask_idxs) > 0:
         scores[mask_idxs] = float('-inf')
     max_idx = np.argmax(scores)
@@ -99,17 +100,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    metric = load_metric('rouge')
-
     in_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(args.experiment))
     print('Loading predictions from {}...'.format(in_fn))
     df = pd.read_csv(in_fn)
+    df['prediction'] = df['prediction'].fillna(value='')
     print('Loaded {} predictions.'.format(df.shape[0]))
     predictions = df['prediction'].tolist()
     references = df['reference'].tolist()
     rouge_types = ['rouge1', 'rouge2', 'rougeL', 'rougeLsum']
     print('Computing {}...'.format(', '.join(rouge_types)))
-    scores = metric.compute(predictions=predictions, references=references, rouge_types=rouge_types)
+    scores = compute(predictions=predictions, references=references, rouge_types=rouge_types)
 
     results = []
     stats = ['low', 'mid', 'high']

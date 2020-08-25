@@ -10,6 +10,7 @@ import pandas as pd
 
 from preprocess.constants import out_dir
 from preprocess.section_utils import resolve_course, sents_from_html
+from preprocess.utils import *
 
 
 def get_target_toks(mrn):
@@ -23,11 +24,9 @@ def get_target_toks(mrn):
 
 
 if __name__ == '__main__':
-    splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
-    train_df = splits_df[splits_df['split'] == 'train']
-    train_mrns = train_df['mrn'].unique().tolist()
-    sents_str = list(filter(None, p_uimap(get_target_toks, train_mrns)))
-    sents_str_flat = list(set(list(itertools.chain(*list(itertools.chain(*sents_str))))))
+    train_df = get_records(type='train')
+    sents_str = train_df['spacy_target_toks'].apply(lambda x: sents_from_html(resolve_course(x), convert_lower=True))
+    sents_str_flat = list(set(list(itertools.chain(*sents_str))))
     sents_fn = os.path.join(out_dir, 'train_sents.csv')
     df = pd.DataFrame(sents_str_flat, columns=['sents'])
     df.to_csv(sents_fn, index=False)

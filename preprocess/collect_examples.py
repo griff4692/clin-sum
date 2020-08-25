@@ -8,7 +8,10 @@ from p_tqdm import p_uimap
 from constants import *
 from utils import *
 
-COLS = ['mrn', 'account', 'spacy_source_toks_packed', 'spacy_target_toks']
+COLS = [
+    'mrn', 'account', 'spacy_source_toks_packed', 'spacy_target_toks', 'spacy_source_tok_ct', 'spacy_target_tok_ct',
+    'coverage', 'density', 'compression', 'fragments'
+]
 
 
 def collect_examples(mrn):

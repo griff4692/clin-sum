@@ -6,10 +6,11 @@ sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 import argparse
 import numpy as np
 import pandas as pd
-from p_tqdm import p_imap
+from p_tqdm import p_uimap
 
 from preprocess.constants import out_dir
 from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_from_html
+from preprocess.utils import *
 
 
 def top_k_sents(packed_str, k=12, preserve_order=True):
@@ -24,33 +25,22 @@ def top_k_sents(packed_str, k=12, preserve_order=True):
         return [sents[i] for i in top_k]
 
 
-def gen_summaries(mrn):
-    example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
-    example_df = pd.read_csv(example_fn)
-    if 'spacy_source_toks_packed' not in example_df.columns:
-        return False
+def gen_summaries(record):
+    top_sents = top_k_sents(record['spacy_source_toks_packed'])
+    target_toks = sent_toks_from_html(resolve_course(record['spacy_target_toks']), convert_lower=False)
+    summary = ' '.join(top_sents)
+    reference = ' '.join(target_toks)
+    ref_len = len(target_toks)
+    sum_len = len(summary.split(' '))
 
-    records = example_df.to_dict('records')
-    outputs = []
-    for record in records:
-        top_sents = top_k_sents(record['spacy_source_toks_packed'])
-        target_toks = sent_toks_from_html(resolve_course(record['spacy_target_toks']), convert_lower=False)
-        summary = ' '.join(top_sents)
-        reference = ' '.join(target_toks)
-
-        ref_len = len(target_toks)
-        sum_len = len(summary.split(' '))
-
-        outputs.append({
-            'account': record['account'],
-            'mrn': record['mrn'],
-            'prediction': summary,
-            'reference': reference,
-            'sum_len': sum_len,
-            'ref_len': ref_len,
-        })
-
-    return outputs
+    return {
+        'account': record['account'],
+        'mrn': record['mrn'],
+        'prediction': summary,
+        'reference': reference,
+        'sum_len': sum_len,
+        'ref_len': ref_len,
+    }
 
 
 if __name__ == '__main__':
@@ -59,16 +49,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
-    val_df = splits_df[splits_df['split'] == 'validation']
-    val_mrns = val_df['mrn'].unique().tolist()
+    validation_df = get_records(type='validation')
+    validation_records = validation_df.to_dict('records')
 
     if args.max_n > 0:
         np.random.seed(1992)
-        val_mrns = np.random.choice(val_mrns, size=args.max_n, replace=False)
+        validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
-    outputs = list(filter(None, p_imap(gen_summaries, val_mrns)))
-    outputs_flat = list(itertools.chain(*outputs))
+    outputs = list(filter(None, p_uimap(gen_summaries, validation_records)))
     out_fn = os.path.join(out_dir, 'predictions', 'lr_validation.csv')
-    output_df = pd.DataFrame(outputs_flat)
+    output_df = pd.DataFrame(outputs)
     output_df.to_csv(out_fn, index=False)

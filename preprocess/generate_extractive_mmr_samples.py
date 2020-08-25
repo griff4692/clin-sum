@@ -1,7 +1,7 @@
 from collections import namedtuple
 import itertools
+import json
 import os
-import pickle
 import sys
 import re
 from time import time
@@ -18,18 +18,15 @@ from preprocess.constants import *
 from preprocess.utils import *
 from preprocess.section_utils import sents_from_html
 
+MAX_TARGET_SENTS = 100  # For skipping examples when generating dataset
+MAX_SOURCE_SENTS = 2000
 
-MAX_SUMMARIES = 25000
-MAX_TARGET_SENTS = 100
+MAX_SUMMARIES = 10000
+MAX_SUM_SENTS = 50
 
-
-Example = namedtuple(
-    'Example',
-    [
-        'mrn', 'account', 'curr_sum_sents', 'source_sents_lexranks', 'candidate_source_sents', 'curr_rouge',
-        'target_rouges', 'target_sents'
-    ]
-)
+# Don't include dubious training examples.  Not a clear enough signal which sentence to pick
+MIN_ROUGE_IMPROVEMENT = 0.01  # if relative gain is less than this, don't create training set
+MIN_ROUGE_DIFFERENTIAL = 0.01  # if difference between worst scoring rouge sentence and best is less than this
 
 
 def extraction_is_keep(str):
@@ -51,38 +48,62 @@ def get_score(metric, recall_weight=1.0):
 
 
 def generate_samples(row):
+    """
+    :param row:
+    :return:
+    """
+    rouge_types = ['rouge1', 'rouge2']
     single_extraction_examples = []
 
     source_sents, source_lrs = sents_from_html(row['spacy_source_toks_packed'], convert_lower=True, extract_lr=True)
     target_sents = sents_from_html(row['spacy_target_toks'], convert_lower=True)
+    target_n = len(target_sents)
+
+    if target_n > MAX_TARGET_SENTS:
+        return []
+
     target = ' '.join(target_sents)
     target_no_stop = prepare_str_for_rouge(target)
 
     source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
-    # remove 1-2 word sentences (too many of them) and most are not necessary for BHC
-    keep_idxs = [idx for idx, s in enumerate(source_sents_no_stop) if extraction_is_keep(s)]
+    dup_idxs = set()
+    seen = set()
+    for idx, source_sent in enumerate(source_sents_no_stop):
+        if source_sent in seen:
+            dup_idxs.add(idx)
+        else:
+            seen.add(source_sent)
+    # remove duplicate sentences and 1-2 word sentences (too many of them) and most are not necessary for BHC
+    keep_idxs = [idx for idx, s in enumerate(source_sents_no_stop) if extraction_is_keep(s) and idx not in dup_idxs]
     source_sents_no_stop_filt = [source_sents_no_stop[idx] for idx in keep_idxs]
     source_lrs_filt = [source_lrs[idx] for idx in keep_idxs]
     source_n = len(keep_idxs)
+
+    if source_n > MAX_SOURCE_SENTS:
+        return []
+
     curr_sum_sents = []
     curr_rouge = 0.0
     included_sent_idxs = set()
-    max_target_n = min(source_n, len(target_sents), MAX_TARGET_SENTS)
+    max_sum_n = min(source_n, len(target_sents), MAX_SUM_SENTS)
     references = [target_no_stop for _ in range(source_n)]
-    for _ in range(max_target_n):
+
+    for gen_idx in range(max_sum_n):
         curr_sum = ' '.join(curr_sum_sents).strip() + ' '
         predictions = [(curr_sum + s).strip() for s in source_sents_no_stop_filt]
-        outputs = compute(
-            predictions=predictions, references=references, rouge_types=['rouge1', 'rouge2'], use_agregator=False)
-        scores = np.array(list(map(
-            lambda x: (get_score(x[0]) + get_score(x[1])) / 2.0,
-            zip(outputs['rouge1'], outputs['rouge2']))
-        ))
+        outputs = compute(predictions=predictions, references=references, rouge_types=rouge_types, use_aggregator=False)
+        scores = np.array(
+            [sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(source_n)])
+        scores_pos_mask = scores.copy()
         if len(included_sent_idxs) > 0:
             scores[list(included_sent_idxs)] = float('-inf')
+            scores_pos_mask[list(included_sent_idxs)] = float('inf')
         max_idx = np.argmax(scores)
-        score = scores[max_idx]
-        if score <= curr_rouge:
+        max_score = scores[max_idx]
+        min_score = scores_pos_mask.min()
+        max_differential = max_score - min_score
+        max_gain = max_score - curr_rouge
+        if max_gain < MIN_ROUGE_IMPROVEMENT or max_differential < MIN_ROUGE_DIFFERENTIAL:
             break
 
         eligible_scores = []
@@ -94,18 +115,19 @@ def generate_samples(row):
                 eligible_source_sents.append(source_sents_no_stop_filt[i])
                 eligible_lrs.append(source_lrs_filt[i])
         # Example
-        example = Example(
-            mrn=row['account'],
-            account=row['account'],
-            curr_sum_sents=curr_sum_sents.copy(),
-            candidate_source_sents=eligible_source_sents,
-            source_sents_lexranks=source_lrs_filt,
-            curr_rouge=curr_rouge,
-            target_rouges=eligible_scores,
-            target_sents=target_sents,
-        )
+        example = {
+            'mrn': row['account'],
+            'account': row['account'],
+            'curr_sum_sents': curr_sum_sents.copy(),
+            'candidate_source_sents': eligible_source_sents,
+            'source_sents_lexranks': source_lrs_filt,
+            'curr_rouge': curr_rouge,
+            'target_rouges': eligible_scores,
+            'target_sents': target_sents,
+        }
+
         single_extraction_examples.append(example)
-        curr_rouge = score
+        curr_rouge = max_score
         curr_sum_sents.append(source_sents_no_stop_filt[int(max_idx)])
         included_sent_idxs.add(max_idx)
     return single_extraction_examples
@@ -117,20 +139,11 @@ if __name__ == '__main__':
     parser.add_argument('-single_proc', default=False, action='store_true')
 
     args = parser.parse_args()
+
     mini_str = '_mini' if args.mini else ''
-    in_fn = os.path.join(out_dir, 'full_examples{}.csv'.format(mini_str))
-
-    print('Loading full examples from {}'.format(in_fn))
-    examples_df = pd.read_csv(in_fn)
-
-    splits_fn = os.path.join(out_dir, 'splits.csv')
-    splits_df = pd.read_csv(splits_fn)[['mrn', 'split']].drop_duplicates(subset=['mrn'])
-    df = examples_df.merge(splits_df, on='mrn')
-    assert len(df) == len(examples_df)
-
-    types = ['train', 'validation', 'test']
+    types = ['validation', 'train']
     for type in types:
-        type_df = df[df['split'] == type]
+        type_df = get_records(type=type, mini=args.mini)
         if len(type_df) > MAX_SUMMARIES:
             print('Shrinking from {} to {}'.format(len(type_df), MAX_SUMMARIES))
             type_df = type_df.sample(n=MAX_SUMMARIES, replace=False)
@@ -144,7 +157,7 @@ if __name__ == '__main__':
 
         output = list(itertools.chain(*single_extraction_examples))
         out_n = len(output)
-        out_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}.pk'.format(type, mini_str))
+        out_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}.json'.format(type, mini_str))
         print('Saving {} labeled single step extraction samples to {}'.format(out_n, out_fn))
-        with open(out_fn, 'wb') as fd:
-            pickle.dump(output, fd)
+        with open(out_fn, 'w') as fd:
+            json.dump(output, fd)

@@ -202,7 +202,7 @@ if __name__ == '__main__':
         idf_score_dd[k] = v
 
     stopwords = STOPWORDS['en']
-    stopwords = stopwords.union([x for x in punctuation])
+    stopwords = stopwords.union(set([x for x in punctuation]))
     lxr = LexRank(idf_score=idf_score_dd, stopwords=stopwords, default=idf['default'])
     s = p_uimap(rank_sents, all_mrns, num_cpus=0.33)
 
