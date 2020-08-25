@@ -1,25 +1,15 @@
-from collections import Counter, defaultdict
-from functools import partial
 import itertools
-import json
-import math
-from multiprocessing import Pool
 import os
-from string import punctuation
 import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 
 import argparse
-from lexrank import STOPWORDS
-from lexrank.algorithms.power_method import stationary_distribution
-from lexrank.utils.text import tokenize
 import numpy as np
 import pandas as pd
 from p_tqdm import p_imap
 
 from preprocess.constants import out_dir
-from preprocess.section_utils import pack_sentences, resolve_course, sents_from_html, sent_toks_from_html
-from preprocess.utils import get_mrn_status_df
+from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_from_html
 
 
 def top_k_sents(packed_str, k=12, preserve_order=True):

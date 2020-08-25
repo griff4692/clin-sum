@@ -3,12 +3,12 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from p_tqdm import p_uimap
 
 from constants import *
 from utils import *
 
-COLS = ['mrn', 'account', 'spacy_source_toks', 'spacy_target_toks']
+COLS = ['mrn', 'account', 'spacy_source_toks_packed', 'spacy_target_toks']
 
 
 def collect_examples(mrn):
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     _, _, mrns = get_mrn_status_df('valid_example')
     n = len(mrns)
 
-    examples = list(tqdm(map(collect_examples, mrns), total=len(mrns)))
+    examples = list(p_uimap(collect_examples, mrns))
     print('Concatenating all {} dataframes'.format(len(examples)))
     df = pd.concat(examples)
 
