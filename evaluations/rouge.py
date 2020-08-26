@@ -10,14 +10,13 @@ import numpy as np
 from nltk.corpus import stopwords
 import pandas as pd
 from p_tqdm import p_imap
-from tqdm import tqdm
 from rouge_score import rouge_scorer
 
 from preprocess.constants import out_dir
 from utils import decode_utf8
 
-
-STOPWORDS = set(stopwords.words('english')).union(string.punctuation)
+PATIENT_TERMS = {'patient', 'pt', 'patient\'s', 'patients', 'patients\''}
+STOPWORDS = set(stopwords.words('english')).union(string.punctuation).union(PATIENT_TERMS)
 
 
 def compute(predictions, references, rouge_types=None, use_aggregator=True, use_parallel=False):

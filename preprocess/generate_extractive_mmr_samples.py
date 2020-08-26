@@ -1,14 +1,12 @@
-from collections import namedtuple
 import itertools
 import json
 import os
+from random import random
 import sys
 import re
-from time import time
 
 import argparse
 import numpy as np
-import pandas as pd
 from p_tqdm import p_uimap
 from tqdm import tqdm
 
@@ -21,7 +19,7 @@ from preprocess.section_utils import sents_from_html
 MAX_TARGET_SENTS = 100  # For skipping examples when generating dataset
 MAX_SOURCE_SENTS = 2000
 
-MAX_SUMMARIES = 10000
+MAX_SUMMARIES = 12500
 MAX_SUM_SENTS = 50
 
 # Don't include dubious training examples.  Not a clear enough signal which sentence to pick
@@ -29,12 +27,18 @@ MIN_ROUGE_IMPROVEMENT = 0.01  # if relative gain is less than this, don't create
 MIN_ROUGE_DIFFERENTIAL = 0.01  # if difference between worst scoring rouge sentence and best is less than this
 
 
-def extraction_is_keep(str):
+def extraction_is_keep(str, target_toks, no_match_keep_prob=0.33):
     MIN_WORD_CT = 3
     any_alpha = re.search('[a-zA-Z]', str) is not None
     toks = str.split(' ')
+    any_matches = False
+    for tok in toks:
+        if tok in target_toks:
+            any_matches = True
+            break
     long_enough = len(toks) >= MIN_WORD_CT
-    return any_alpha and long_enough
+    any_matches = any_matches or random() <= no_match_keep_prob
+    return any_alpha and long_enough and any_matches
 
 
 def get_score(metric, recall_weight=1.0):
@@ -45,6 +49,21 @@ def get_score(metric, recall_weight=1.0):
     beta = recall_weight ** 2
     denom = max(beta * p + r, 1e-5)
     return (1 + beta) * num / denom
+
+
+def compute_no_match_keep_prob(source_n, is_test):
+    if is_test:
+        return 1.0
+    if source_n < 100:
+        return 1.0
+    elif source_n < 250:
+        return 0.75
+    elif source_n < 500:
+        return 0.5
+    elif source_n < 1000:
+        return 0.25
+    else:
+        return 0.1
 
 
 def generate_samples(row):
@@ -64,6 +83,7 @@ def generate_samples(row):
 
     target = ' '.join(target_sents)
     target_no_stop = prepare_str_for_rouge(target)
+    target_toks = set(target_no_stop.split(' '))
 
     source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
     dup_idxs = set()
@@ -74,12 +94,16 @@ def generate_samples(row):
         else:
             seen.add(source_sent)
     # remove duplicate sentences and 1-2 word sentences (too many of them) and most are not necessary for BHC
-    keep_idxs = [idx for idx, s in enumerate(source_sents_no_stop) if extraction_is_keep(s) and idx not in dup_idxs]
+    keep_idxs = [
+        idx for idx, s in enumerate(source_sents_no_stop) if extraction_is_keep(
+            s, target_toks, no_match_keep_prob=compute_no_match_keep_prob(len(source_sents), type == 'test')
+        ) and idx not in dup_idxs
+    ]
     source_sents_no_stop_filt = [source_sents_no_stop[idx] for idx in keep_idxs]
     source_lrs_filt = [source_lrs[idx] for idx in keep_idxs]
     source_n = len(keep_idxs)
 
-    if source_n > MAX_SOURCE_SENTS:
+    if source_n < target_n or source_n > MAX_SOURCE_SENTS:
         return []
 
     curr_sum_sents = []
@@ -114,13 +138,14 @@ def generate_samples(row):
                 eligible_scores.append(scores[i])
                 eligible_source_sents.append(source_sents_no_stop_filt[i])
                 eligible_lrs.append(source_lrs_filt[i])
+
         # Example
         example = {
             'mrn': row['account'],
             'account': row['account'],
             'curr_sum_sents': curr_sum_sents.copy(),
             'candidate_source_sents': eligible_source_sents,
-            'source_sents_lexranks': source_lrs_filt,
+            'source_sents_lexranks': eligible_lrs,
             'curr_rouge': curr_rouge,
             'target_rouges': eligible_scores,
             'target_sents': target_sents,
