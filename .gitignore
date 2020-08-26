@@ -133,3 +133,4 @@ data/
 lightning_logs/
 results/
 predictions/
+weights/
