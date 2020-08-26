@@ -35,6 +35,8 @@ def greedy_rel_rouge(source_sents, target_sents):
     summary = ' <s> '.join(summary_sents).strip()
     sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
 
+    print(max(rouge_scores))
+
     return {
         'sent_order': stringify_list(sent_order),
         'rouge_scores': stringify_list(rouge_scores),
