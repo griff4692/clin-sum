@@ -19,7 +19,7 @@ from preprocess.section_utils import sents_from_html
 MAX_TARGET_SENTS = 100  # For skipping examples when generating dataset
 MAX_SOURCE_SENTS = 2000
 
-MAX_SUMMARIES = 12500
+MAX_SUMMARIES = 17500
 MAX_SUM_SENTS = 50
 
 # Don't include dubious training examples.  Not a clear enough signal which sentence to pick

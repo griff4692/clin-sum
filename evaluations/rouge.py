@@ -11,6 +11,7 @@ from nltk.corpus import stopwords
 import pandas as pd
 from p_tqdm import p_imap
 from rouge_score import rouge_scorer
+from tqdm import tqdm
 
 from preprocess.constants import out_dir
 from utils import decode_utf8
@@ -19,7 +20,7 @@ PATIENT_TERMS = {'patient', 'pt', 'patient\'s', 'patients', 'patients\''}
 STOPWORDS = set(stopwords.words('english')).union(string.punctuation).union(PATIENT_TERMS)
 
 
-def compute(predictions, references, rouge_types=None, use_aggregator=True, use_parallel=False):
+def compute(predictions, references, rouge_types=None, use_aggregator=True, use_parallel=False, show_progress=False):
     if rouge_types is None:
         rouge_types = ['rouge1']
 
@@ -29,12 +30,20 @@ def compute(predictions, references, rouge_types=None, use_aggregator=True, use_
         scores = list(p_imap(lambda x: scorer.score(x[0], x[1]), list(zip(references, predictions))))
     else:
         scores = []
-        for i in range(len(references)):
-            score = scorer.score(references[i], predictions[i])
-            if use_aggregator:
-                aggregator.add_scores(score)
-            else:
-                scores.append(score)
+        if show_progress:
+            for i in tqdm(range(len(references))):
+                score = scorer.score(references[i], predictions[i])
+                if use_aggregator:
+                    aggregator.add_scores(score)
+                else:
+                    scores.append(score)
+        else:
+            for i in range(len(references)):
+                score = scorer.score(references[i], predictions[i])
+                if use_aggregator:
+                    aggregator.add_scores(score)
+                else:
+                    scores.append(score)
 
     if use_aggregator:
         result = aggregator.aggregate()
@@ -96,6 +105,7 @@ def max_rouge_sent(target, source_sents, rouge_types, return_score=False, source
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('ROUGE Scorer')
     parser.add_argument('--experiment', default='lr')
+    parser.add_argument('-rougeL', default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -103,12 +113,15 @@ if __name__ == '__main__':
     print('Loading predictions from {}...'.format(in_fn))
     df = pd.read_csv(in_fn)
     df['prediction'] = df['prediction'].fillna(value='')
+
     print('Loaded {} predictions.'.format(df.shape[0]))
     predictions = df['prediction'].tolist()
     references = df['reference'].tolist()
-    rouge_types = ['rouge1', 'rouge2', 'rougeL', 'rougeLsum']
+    rouge_types = ['rouge1', 'rouge2']
+    if args.rougeL:  # this is very slow
+        rouge_types.append('rougeL')
     print('Computing {}...'.format(', '.join(rouge_types)))
-    scores = compute(predictions=predictions, references=references, rouge_types=rouge_types)
+    scores = compute(predictions=predictions, references=references, rouge_types=rouge_types, show_progress=True)
 
     results = []
     stats = ['low', 'mid', 'high']
