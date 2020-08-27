@@ -132,7 +132,11 @@ class SingleExtractionDataset(Dataset):
         n = len(source_sents_dedup)
         if n > MAX_SOURCE_SENTS:
             np.random.seed(1992)
-            sample_idxs = np.random.choice(range(n), size=MAX_SOURCE_SENTS, p=softmax(rel_rouges), replace=False)
+            argmax_idx = int(np.argmax(rel_rouges))
+            p = [1.0 / float(n - 1) for _ in range(n)]
+            p[argmax_idx] = 0.0
+            sample_idxs = np.random.choice(range(n), size=MAX_SOURCE_SENTS - 1, p=p, replace=False)
+            sample_idxs = [argmax_idx] + list(sample_idxs)
             rel_rouges = np.array([rel_rouges[idx] for idx in sample_idxs])
             source_sents_dedup = [source_sents_dedup[idx] for idx in sample_idxs]
         target_dist = softmax(min_max_norm(rel_rouges), temp=self.label_temp)

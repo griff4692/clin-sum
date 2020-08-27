@@ -216,6 +216,7 @@ if __name__ == '__main__':
         distributed_backend=distributed_backend,
         precision=precision,
         check_val_every_n_epoch=1,
+        val_check_interval=0.25,
         deterministic=True,
         accumulate_grad_batches=1,
         auto_select_gpus=True,
