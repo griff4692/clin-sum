@@ -19,16 +19,18 @@ from preprocess.section_utils import sents_from_html
 MAX_TARGET_SENTS = 100  # For skipping examples when generating dataset
 MAX_SOURCE_SENTS = 2000
 
-MAX_SUMMARIES = 17500
+MAX_SUMMARIES = 20000
 MAX_SUM_SENTS = 50
 
 # Don't include dubious training examples.  Not a clear enough signal which sentence to pick
-MIN_ROUGE_IMPROVEMENT = 0.01  # if relative gain is less than this, don't create training set
+MIN_ROUGE_IMPROVEMENT = 0.02  # if relative gain is less than this, don't create training set
 MIN_ROUGE_DIFFERENTIAL = 0.01  # if difference between worst scoring rouge sentence and best is less than this
+
+# min word count to be considered for extractive summarization (remove pseudo-sentences with dates or just poor split)
+MIN_WORD_CT = 3
 
 
 def extraction_is_keep(str, target_toks, no_match_keep_prob=0.33):
-    MIN_WORD_CT = 3
     any_alpha = re.search('[a-zA-Z]', str) is not None
     toks = str.split(' ')
     any_matches = False
@@ -122,8 +124,9 @@ def generate_samples(row):
         if len(included_sent_idxs) > 0:
             scores[list(included_sent_idxs)] = float('-inf')
             scores_pos_mask[list(included_sent_idxs)] = float('inf')
-        max_idx = np.argmax(scores)
+        max_idx = int(np.argmax(scores))
         max_score = scores[max_idx]
+        assert max_idx not in included_sent_idxs
         min_score = scores_pos_mask.min()
         max_differential = max_score - min_score
         max_gain = max_score - curr_rouge
@@ -153,8 +156,9 @@ def generate_samples(row):
 
         single_extraction_examples.append(example)
         curr_rouge = max_score
-        curr_sum_sents.append(source_sents_no_stop_filt[int(max_idx)])
+        curr_sum_sents.append(source_sents_no_stop_filt[max_idx])
         included_sent_idxs.add(max_idx)
+    assert len(curr_sum_sents) == len(set(curr_sum_sents))
     return single_extraction_examples
 
 
@@ -168,6 +172,7 @@ if __name__ == '__main__':
     mini_str = '_mini' if args.mini else ''
     types = ['validation', 'train']
     for type in types:
+        print('Getting records for {} set'.format(type))
         type_df = get_records(type=type, mini=args.mini)
         if len(type_df) > MAX_SUMMARIES:
             print('Shrinking from {} to {}'.format(len(type_df), MAX_SUMMARIES))

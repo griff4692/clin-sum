@@ -16,17 +16,21 @@ import argparse
 from preprocess.constants import out_dir
 from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_from_html
 from preprocess.utils import get_mrn_status_df, get_records
-from evaluations.rouge import max_rouge_sent, max_rouge_set, prepare_str_for_rouge
+from evaluations.rouge import max_rouge_sent, max_rouge_set, prepare_str_for_rouge, top_rouge_sents
 
 
 def stringify_list(a):
     return ','.join([str(x) for x in a])
 
 
-def greedy_rel_rouge(source_sents, target_sents):
+def greedy_rel_rouge_recall(source_sents, target_sents):
+    return greedy_rel_rouge(source_sents, target_sents, target_tok_ct=1024)
+
+
+def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=None):
     target = ' '.join(target_sents)
     source_sents_dedup = list(dict.fromkeys(source_sents))
-    sent_order, rouge_scores = max_rouge_set(target, source_sents_dedup, rouge_types)
+    sent_order, rouge_scores = max_rouge_set(target, source_sents_dedup, rouge_types, target_tok_ct=target_tok_ct)
     summary_sents = []
     for sent_idx in sent_order:
         summary_sents.append(source_sents_dedup[sent_idx])
@@ -35,7 +39,49 @@ def greedy_rel_rouge(source_sents, target_sents):
     summary = ' <s> '.join(summary_sents).strip()
     sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
 
-    print(max(rouge_scores))
+    return {
+        'sent_order': stringify_list(sent_order),
+        'rouge_scores': stringify_list(rouge_scores),
+        'prediction': summary,
+        'sum_len': sum_len
+    }
+
+
+def top_k_rouge_recall(source_sents, target_sents):
+    target = ' '.join(target_sents)
+    source_sents_dedup = list(dict.fromkeys(source_sents))
+    sent_order, rouge_scores = top_rouge_sents(target, source_sents_dedup, rouge_types)
+    summary_sents = []
+    for sent_idx in sent_order:
+        summary_sents.append(source_sents_dedup[sent_idx])
+
+    n = len(summary_sents)
+    summary = ' <s> '.join(summary_sents).strip()
+    sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
+
+    return {
+        'sent_order': stringify_list(sent_order),
+        'rouge_scores': stringify_list(rouge_scores),
+        'prediction': summary,
+        'sum_len': sum_len
+    }
+
+
+def top_k_rouge_recall(source_sents, target_sents):
+    return top_k_rouge(source_sents, target_sents, target_tok_ct=1024)
+
+
+def top_k_rouge(source_sents, target_sents, target_tok_ct=100):
+    target = ' '.join(target_sents)
+    source_sents_dedup = list(dict.fromkeys(source_sents))
+    sent_order, rouge_scores = top_rouge_sents(target, source_sents_dedup, rouge_types)
+    summary_sents = []
+    for sent_idx in sent_order:
+        summary_sents.append(source_sents_dedup[sent_idx])
+
+    n = len(summary_sents)
+    summary = ' <s> '.join(summary_sents).strip()
+    sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
 
     return {
         'sent_order': stringify_list(sent_order),
@@ -89,7 +135,8 @@ def gen_summaries(record):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to generate oracle predictions')
     parser.add_argument('--max_n', default=-1, type=int)
-    parser.add_argument('--strategy', default='sent_align', choices=['sent_align', 'greedy'])
+    parser.add_argument('--strategy', default='sent_align', choices=
+    ['sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall',])
     parser.add_argument('--rouge_types', default='rouge1,rouge2')
 
     args = parser.parse_args()
@@ -97,6 +144,17 @@ if __name__ == '__main__':
 
     validation_df = get_records(type='validation')
     validation_records = validation_df.to_dict('records')
+
+    if args.strategy == 'sent_align':
+        summarizer = sent_align
+    elif args.strategy == 'greedy_rel':
+        summarizer = greedy_rel_rouge
+    elif args.strategy == 'greedy_rel_recall':
+        summarizer = greedy_rel_rouge_recall
+    elif args.strategy == 'top_k':
+        summarizer = top_k_rouge
+    elif args.strategy == 'top_k_recall':
+        summarizer = top_k_rouge_recall
 
     summarizer = sent_align if args.strategy == 'sent_align' else greedy_rel_rouge
     

@@ -64,7 +64,31 @@ def remove_stopwords(str):
     return ' '.join([t for t in tok if not t in STOPWORDS])
 
 
-def max_rouge_set(target, source_sents, rouge_types):
+def top_rouge_sents(target, source_sents, rouge_types, target_tok_ct=1024):
+    n = len(source_sents)
+    target_no_stop = prepare_str_for_rouge(target)
+    source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
+    references = [target_no_stop for _ in range(n)]
+    outputs = compute(
+        predictions=source_sents_no_stop, references=references, rouge_types=rouge_types, use_aggregator=False)
+    scores = np.array([sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
+
+    max_idxs = scores.argsort()[::-1]
+
+    sum_len = 0
+    k = -1
+    for i, idx in enumerate(max_idxs):
+        k = i
+        sent_len = len(source_sents[idx].split(' '))
+        if sum_len + sent_len <= target_tok_ct:
+            sum_len += sent_len
+        else:
+            break
+
+    return max_idxs[:k]
+
+
+def max_rouge_set(target, source_sents, rouge_types, target_tok_ct=None):
     n = len(source_sents)
     target_no_stop = prepare_str_for_rouge(target)
     source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
@@ -77,7 +101,11 @@ def max_rouge_set(target, source_sents, rouge_types):
             target_no_stop, source_sents_no_stop, rouge_types, return_score=True, source_prefix=curr_sum,
             mask_idxs=sent_order
         )
-        if score <= curr_rouge:
+
+        decreasing_score = target_tok_ct is None and score <= curr_rouge
+        mc = target_tok_ct is not None and len(source_sents[idx].split(' ')) + len(curr_sum.split(' ')) > target_tok_ct
+
+        if decreasing_score or mc:
             break
         curr_rouge = score
         curr_sum += source_sents[idx] + ' '

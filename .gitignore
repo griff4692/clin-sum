@@ -134,3 +134,4 @@ lightning_logs/
 results/
 predictions/
 weights/
+wandb/
