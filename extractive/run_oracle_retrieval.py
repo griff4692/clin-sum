@@ -22,15 +22,21 @@ from preprocess.constants import out_dir
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to generate hybrid oracle retrieval-extractive predictions')
-    parser.add_argument('--criteria', default='rouge1', choices=['rouge1', 'rouge2', 'rougeL'])
+    parser.add_argument('--rouge_types', default='rouge1,rouge2')
 
     args = parser.parse_args()
 
+    rouge_types = args.rouge_types.split(',')
+
     retrieval_fn = os.path.join(out_dir, 'predictions', 'retrieval_validation.csv')
-    oracle_fn = os.path.join(out_dir, 'predictions', 'oracle_validation.csv')
+    oracle_fn = os.path.join(out_dir, 'predictions', 'oracle_sent_align_validation.csv')
 
     retrieval_df = pd.read_csv(retrieval_fn)
+    retrieval_df['prediction'] = retrieval_df['prediction'].fillna(value='')
     oracle_df = pd.read_csv(oracle_fn)
+    oracle_df['prediction'] = oracle_df['prediction'].fillna(value='')
+
+    assert len(retrieval_df) == len(oracle_df)
 
     oracle_df.sort_values(by=['mrn', 'account'], inplace=True)
     retrieval_df.sort_values(by=['mrn', 'account'], inplace=True)
@@ -52,7 +58,7 @@ if __name__ == '__main__':
         ref_sents = ref.split('<s> ')
         max_sents = []
         for or_sent, ret_sent, ref_sent in zip(or_sents, ret_sents, ref_sents):
-            sent = max_rouge_sent(ref_sent.strip(), [or_sent.strip(), ret_sent.strip()], rouge_type=args.criteria)
+            sent, _ = max_rouge_sent(ref_sent.strip(), [or_sent.strip(), ret_sent.strip()], rouge_types=rouge_types)
             max_sents.append(sent)
         n = len(ref_sents)
         summary = ' <s> '.join(max_sents).strip()

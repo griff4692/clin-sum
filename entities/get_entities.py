@@ -2,6 +2,7 @@ from datetime import datetime
 from collections import defaultdict, Counter
 from functools import partial
 import os
+import sys
 from time import time
 
 import numpy as np
@@ -14,17 +15,9 @@ from scispacy.abbreviation import AbbreviationDetector
 from scispacy.linking import EntityLinker
 from p_tqdm import p_uimap
 
-from constants import *
-from utils import *
-
-# snomed_core_fn = '../data/SNOMEDCT_CORE_SUBSET_202005/SNOMEDCT_CORE_SUBSET_202005.txt'
-# core_cols = ['SNOMED_CID', 'SNOMED_FSN', 'SNOMED_CONCEPT_STATUS']
-# WHITELIST_UMLS_TYPES = {
-#     'Diagnostic Procedure',
-#     'Pharmacologic Substance',
-#     'Clinical Drug',
-#     'Finding'
-# }
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+from preprocess.constants import *
+from preprocess.utils import *
 
 
 def _process(mrn, account, name, cui, note_id, is_t):
@@ -51,11 +44,6 @@ def extract_entities(mrn):
         return
 
     valid_accounts = set(pd.read_csv(valid_accounts_fn)['account'].tolist())
-    if os.path.exists(entities_fn):
-        cols = open(entities_fn, 'r').readline().strip()
-        if cols == 'mrn,account,is_target,is_source,note_id,name,cui':
-            return
-
     notes_df = pd.read_csv(notes_fn)
     valid_notes_df = notes_df[notes_df['account'].isin(valid_accounts)]
     source_notes = valid_notes_df[valid_notes_df['is_source']]
