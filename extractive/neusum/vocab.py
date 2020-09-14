@@ -14,6 +14,7 @@ from p_tqdm import p_uimap
 from tqdm import tqdm
 
 from preprocess.constants import *
+from preprocess.utils import get_records
 from preprocess.section_utils import sent_toks_from_html
 
 
@@ -108,28 +109,16 @@ class Vocab:
         return len(self.i2w)
 
 
-def get_tokens(mrn):
-    """
-    :param mrn:
-    :return:
-    """
-    mrn_dir = os.path.join(out_dir, 'mrn', str(mrn))
-    examples_fn = os.path.join(mrn_dir, 'examples.csv')
-    examples_df = pd.read_csv(examples_fn)
-    assert len(examples_df) > 0
-    toks = []
-
-    for row in examples_df.to_dict('records'):
-        source_toks = sent_toks_from_html(row['spacy_source_toks'], convert_lower=True)
-        target_toks = sent_toks_from_html(row['spacy_target_toks'], convert_lower=True)
-        toks += (source_toks + target_toks)
-
-    return toks
+def get_tokens(row):
+    source_k = 'spacy_source_toks_packed' if 'spacy_source_toks_packed' in row else 'spacy_source_toks'
+    source_toks = sent_toks_from_html(row[source_k], convert_lower=True)
+    target_toks = sent_toks_from_html(row['spacy_target_toks'], convert_lower=True)
+    return source_toks + target_toks
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Generate Vocabulary')
-    parser.add_argument('--min_tf', default=5, type=int)
+    parser.add_argument('--min_tf', default=10, type=int)
     parser.add_argument('-template_numbers', default=False, action='store_true')
 
     args = parser.parse_args()
@@ -155,9 +144,8 @@ if __name__ == '__main__':
         with open(out_fn, 'wb') as fd:
             pickle.dump(vocab, fd)
     else:
-        splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
-        mrns = splits_df[splits_df['split'].isin(['validation', 'train'])]['mrn'].unique().tolist()
-        tokens = p_uimap(get_tokens, mrns, num_cpus=0.25)
+        records = get_records('train').to_dict('records') + get_records('validation').to_dict('records')
+        tokens = p_uimap(get_tokens, records, num_cpus=0.5)
         tokens_flat = list(itertools.chain(*tokens))
         tok_cts = Counter(tokens_flat)
         vocab = Vocab()
