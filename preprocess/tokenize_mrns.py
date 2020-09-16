@@ -24,9 +24,8 @@ def tokenize_example(text, include_bpe=False):
     split_text = re.split(HTML_REGEX, text)
     spacy_final_text = []
     sent_template = '<s> {} </s>'
-    if include_bpe:
-        bpe_tok_ct = 0
-        bpe_final_text = []
+    bpe_tok_ct = 0
+    bpe_final_text = []
     spacy_tok_ct = 0
     for i, str in enumerate(split_text):
         str = str.strip()

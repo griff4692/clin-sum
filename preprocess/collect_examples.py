@@ -9,8 +9,8 @@ from constants import *
 from utils import *
 
 COLS = [
-    'mrn', 'account', 'spacy_source_toks_packed', 'spacy_target_toks', 'spacy_source_tok_ct', 'spacy_target_tok_ct',
-    'coverage', 'density', 'compression', 'fragments'
+    'mrn', 'account', 'source_str', 'target_str', 'spacy_source_toks_packed', 'spacy_target_toks',
+    'spacy_source_tok_ct', 'spacy_target_tok_ct', 'coverage', 'density', 'compression', 'fragments'
 ]
 
 
@@ -33,3 +33,9 @@ if __name__ == '__main__':
     out_fn = os.path.join(out_dir, 'full_examples.csv')
     print('Now saving {} examples to {}'.format(len(df), out_fn))
     df.to_csv(out_fn, index=False)
+
+    small_fn = os.path.join(out_dir, 'full_examples_small.csv')
+    df.sample(n=100, replace=False).to_csv(small_fn, index=False)
+
+    tiny_fn = os.path.join(out_dir, 'full_examples_tiny.csv')
+    df.sample(n=10, replace=False).to_csv(tiny_fn, index=False)
