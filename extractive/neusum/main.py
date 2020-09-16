@@ -237,7 +237,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Main script for NeuSum extractive baseline.')
     parser = pl.Trainer.add_argparse_args(parser)
     parser.add_argument('--experiment', default='default')
-    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--embedding_dim', default=50, type=int)
     parser.add_argument('--hidden_dim', default=50, type=int)
     parser.add_argument('--lr', default=1e-3, type=float)
