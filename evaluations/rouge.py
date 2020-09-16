@@ -64,7 +64,7 @@ def remove_stopwords(str):
     return ' '.join([t for t in tok if not t in STOPWORDS])
 
 
-def top_rouge_sents(target, source_sents, rouge_types, target_tok_ct=1024):
+def top_rouge_sents(target, source_sents, rouge_types):
     n = len(source_sents)
     target_no_stop = prepare_str_for_rouge(target)
     source_sents_no_stop = list(map(prepare_str_for_rouge, source_sents))
@@ -73,19 +73,10 @@ def top_rouge_sents(target, source_sents, rouge_types, target_tok_ct=1024):
         predictions=source_sents_no_stop, references=references, rouge_types=rouge_types, use_aggregator=False)
     scores = np.array([sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
 
-    max_idxs = scores.argsort()[::-1]
+    sent_order = scores.argsort()[::-1]
+    rouges = [scores[i] for i in sent_order]
 
-    sum_len = 0
-    k = -1
-    for i, idx in enumerate(max_idxs):
-        k = i
-        sent_len = len(source_sents[idx].split(' '))
-        if sum_len + sent_len <= target_tok_ct:
-            sum_len += sent_len
-        else:
-            break
-
-    return max_idxs[:k]
+    return sent_order, rouges
 
 
 def max_rouge_set(target, source_sents, rouge_types, target_tok_ct=None):
@@ -96,13 +87,14 @@ def max_rouge_set(target, source_sents, rouge_types, target_tok_ct=None):
     curr_rouge = 0.0
     sent_order = []
     rouges = []
+    metric = 'f1' if target_tok_ct is None else 'recall'
     for _ in range(n):
         _, idx, score = max_rouge_sent(
             target_no_stop, source_sents_no_stop, rouge_types, return_score=True, source_prefix=curr_sum,
-            mask_idxs=sent_order
+            mask_idxs=sent_order, metric=metric
         )
 
-        decreasing_score = target_tok_ct is None and score <= curr_rouge
+        decreasing_score = score <= curr_rouge
         mc = target_tok_ct is not None and len(source_sents[idx].split(' ')) + len(curr_sum.split(' ')) > target_tok_ct
 
         if decreasing_score or mc:
@@ -114,13 +106,21 @@ def max_rouge_set(target, source_sents, rouge_types, target_tok_ct=None):
     return sent_order, rouges
 
 
-def max_rouge_sent(target, source_sents, rouge_types, return_score=False, source_prefix='', mask_idxs=[]):
+def max_rouge_sent(target, source_sents, rouge_types, return_score=False, source_prefix='', mask_idxs=[], metric='f1'):
     n = len(source_sents)
     predictions = [source_prefix + s for s in source_sents]
     references = [target for _ in range(n)]
     outputs = compute(
         predictions=predictions, references=references, rouge_types=rouge_types, use_aggregator=False)
-    scores = np.array([sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
+    if metric == 'f1':
+        scores = np.array(
+            [sum([outputs[t][i].fmeasure for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
+    elif metric == 'recall':
+        scores = np.array(
+            [sum([outputs[t][i].recall for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
+    elif metric == 'precision':
+        scores = np.array(
+            [sum([outputs[t][i].precision for t in rouge_types]) / float(len(rouge_types)) for i in range(n)])
     if len(mask_idxs) > 0:
         scores[mask_idxs] = float('-inf')
     max_idx = np.argmax(scores)
@@ -172,6 +172,6 @@ if __name__ == '__main__':
         print('\n')
     results_df = pd.DataFrame(results)
 
-    out_fn = os.path.join('results', args.experiment)
+    out_fn = os.path.join('results', '{}.csv'.format(args.experiment))
     print('Saving results to {}'.format(out_fn))
     results_df.to_csv(out_fn, index=False)

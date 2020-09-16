@@ -18,10 +18,16 @@ def nonzero_intersection(df, cols):
 
 if __name__ == '__main__':
     print('Loading entity labels dataframe...')
-    in_fn = os.path.join(out_dir, 'entity_labels.csv')
+    sampled_suffix = '_50ksample'
+    in_fn = os.path.join(out_dir, 'entity_labels{}.csv'.format(sampled_suffix))
     df = pd.read_csv(in_fn)
     n = len(df)
     print('Finished loading. Now processing {} entities'.format(n))
+
+    df['in_target'] = df['target_count'].apply(lambda x: 1 if x > 0 else 0)
+    source_ct_df = df[['source_count', 'in_target']].groupby('source_count', as_index=False)['in_target'].mean()
+    out_fn = 'data/source_counts.csv'
+    source_ct_df = source_ct_df.to_csv(out_fn, index=False)
 
     overall_source_ents = np.count_nonzero(df['source_count'])
     overall_target_ents = np.count_nonzero(df['target_count'])
@@ -35,6 +41,7 @@ if __name__ == '__main__':
     account_outputs = defaultdict(list)
 
     accounts = df['account'].unique().tolist()
+    print('{} accounts in total'.format(len(accounts)))
     account_num = len(accounts)
     for account_idx in tqdm(range(account_num)):
         account = accounts[account_idx]
@@ -64,9 +71,13 @@ if __name__ == '__main__':
         cui = cuis[cui_idx]
         cui_df = df[df['cui'] == cui]
 
+        account_tf = len(cui_df['account'].unique())
+
         cui_outputs['cui'].append(cui)
         cui_outputs['tui'].append(cui_df['tui'].iloc[0])
         cui_outputs['sem_group'].append(cui_df['sem_group'].iloc[0])
+        cui_outputs['account_tf'].append(account_tf)
+        cui_outputs['account_tf_norm'].append(account_tf / float(account_num))
 
         num_source_ents = np.count_nonzero(cui_df['source_count'])
         num_target_ents = np.count_nonzero(cui_df['target_count'])
@@ -93,6 +104,7 @@ if __name__ == '__main__':
         tui_output['tui'].append(tui)
         tui_output['recall'].append(avg_recall)
         tui_output['precision'].append(avg_precision)
+        tui_output['n'].append(len(tui_df))
 
     tui_df = pd.DataFrame(tui_output)
     out_fn = 'data/tui_stats.csv'
@@ -107,6 +119,7 @@ if __name__ == '__main__':
         sem_group_output['sem_group'].append(sem_group)
         sem_group_output['recall'].append(avg_recall)
         sem_group_output['precision'].append(avg_precision)
+        sem_group_output['n'].append(len(sem_group_df))
 
     sem_group_df = pd.DataFrame(sem_group_output)
     out_fn = 'data/sem_group_stats.csv'

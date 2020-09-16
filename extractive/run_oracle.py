@@ -48,26 +48,6 @@ def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=None):
 
 
 def top_k_rouge_recall(source_sents, target_sents):
-    target = ' '.join(target_sents)
-    source_sents_dedup = list(dict.fromkeys(source_sents))
-    sent_order, rouge_scores = top_rouge_sents(target, source_sents_dedup, rouge_types)
-    summary_sents = []
-    for sent_idx in sent_order:
-        summary_sents.append(source_sents_dedup[sent_idx])
-
-    n = len(summary_sents)
-    summary = ' <s> '.join(summary_sents).strip()
-    sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
-
-    return {
-        'sent_order': stringify_list(sent_order),
-        'rouge_scores': stringify_list(rouge_scores),
-        'prediction': summary,
-        'sum_len': sum_len
-    }
-
-
-def top_k_rouge_recall(source_sents, target_sents):
     return top_k_rouge(source_sents, target_sents, target_tok_ct=1024)
 
 
@@ -76,16 +56,23 @@ def top_k_rouge(source_sents, target_sents, target_tok_ct=100):
     source_sents_dedup = list(dict.fromkeys(source_sents))
     sent_order, rouge_scores = top_rouge_sents(target, source_sents_dedup, rouge_types)
     summary_sents = []
-    for sent_idx in sent_order:
+    sent_order_trunc, rouge_scores_trunc = [], []
+    sum_len = 0
+    for i, sent_idx in enumerate(sent_order):
+        sum_len += len(source_sents_dedup[sent_idx].split(' '))
+        if sum_len > target_tok_ct:
+            break
         summary_sents.append(source_sents_dedup[sent_idx])
+        sent_order_trunc.append(sent_idx)
+        rouge_scores_trunc.append(rouge_scores[i])
 
     n = len(summary_sents)
     summary = ' <s> '.join(summary_sents).strip()
     sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
 
     return {
-        'sent_order': stringify_list(sent_order),
-        'rouge_scores': stringify_list(rouge_scores),
+        'sent_order': stringify_list(sent_order_trunc),
+        'rouge_scores': stringify_list(rouge_scores_trunc),
         'prediction': summary,
         'sum_len': sum_len
     }
@@ -122,7 +109,7 @@ def gen_summaries(record):
     n = len(target_sents)
     reference = ' <s> '.join(target_sents).strip()
     ref_len = len(reference.split(' ')) - n  # subtract pseudo sentence tokens
-    obj ={
+    obj = {
         'account': record['account'],
         'mrn': record['mrn'],
         'reference': reference,
@@ -142,7 +129,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     rouge_types = args.rouge_types.split(',')
 
-    validation_df = get_records(type='validation')
+    mini = 0 <= args.max_n <= 100
+    validation_df = get_records(type='validation', mini=mini)
     validation_records = validation_df.to_dict('records')
 
     if args.strategy == 'sent_align':
@@ -156,8 +144,6 @@ if __name__ == '__main__':
     elif args.strategy == 'top_k_recall':
         summarizer = top_k_rouge_recall
 
-    summarizer = sent_align if args.strategy == 'sent_align' else greedy_rel_rouge
-    
     if args.max_n > 0:
         np.random.seed(1992)
         validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
