@@ -244,10 +244,11 @@ if __name__ == '__main__':
     parser.add_argument('-mini', default=False, action='store_true')
     parser.add_argument('--objective', default='bce', choices=['bce', 'kld'])
     parser.add_argument('-cpu', default=False, action='store_true')
-    parser.add_argument('--q_temp', default=5.0, type=float, help='Temperature smoothing coefficient when taking '
+    parser.add_argument('--q_temp', default=1.0, type=float, help='Temperature smoothing coefficient when taking '
                                                                   'softmax over true label distribution.'
                         )
     parser.add_argument('-eval_only', default=False, action='store_true')
+    parser.add_argument('--max_curr_sum_sents', default=50, type=int)
 
     args = parser.parse_args()
 
@@ -278,9 +279,12 @@ if __name__ == '__main__':
             prefix=''
         )
 
-        train_dataset = SingleExtractionDataset(vocab, type='train', mini=args.mini, label_temp=args.q_temp)
-        val_dataset = SingleExtractionDataset(vocab, type='validation', mini=args.mini)
-        test_dataset = SingleExtractionDataset(vocab, type='validation', mini=args.mini, full_only=True)
+        train_dataset = SingleExtractionDataset(
+            vocab, type='train', mini=args.mini, label_temp=args.q_temp, max_curr_sum_sents=args.max_curr_sum_sents)
+        val_dataset = SingleExtractionDataset(
+            vocab, type='validation', mini=args.mini, max_curr_sum_sents=args.max_curr_sum_sents)
+        test_dataset = SingleExtractionDataset(
+            vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False)
 
         per_device_batch_size = args.batch_size if gpus is None else args.batch_size // gpus
         if per_device_batch_size < args.batch_size:
@@ -336,7 +340,8 @@ if __name__ == '__main__':
         checkpoint_fns = glob.glob(os.path.join(weights_dir, '*.ckpt'))
         assert len(checkpoint_fns) == 1
         model = NeuSum.load_from_checkpoint(checkpoint_fns[0], args=args, vocab=vocab)
-        test_dataset = SingleExtractionDataset(model.vocab, type='validation', mini=args.mini, full_only=True)
+        test_dataset = SingleExtractionDataset(
+            model.vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False)
         test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=test_collate_fn)
         trainer = pl.Trainer()
     model.freeze()

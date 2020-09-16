@@ -103,15 +103,15 @@ def truncate(str, max_len):
 
 
 class SingleExtractionDataset(Dataset):
-    def __init__(self, vocab, type, mini, label_temp=_DEFAULT_LABEL_TEMP, full_only=False):
+    def __init__(self, vocab, type, mini, label_temp=_DEFAULT_LABEL_TEMP, max_curr_sum_sents=None, trunc=True):
         mini_str = '_mini' if mini else ''
         in_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}.json'.format(type, mini_str))
         print('Loading {} set from {}'.format(type, in_fn))
         with open(in_fn, 'r') as fd:
             self.examples = json.load(fd)
-        self.trunc = not full_only
-        if full_only:
-            self.examples = [example for example in self.examples if len(example['curr_sum_sents']) == 0]
+        self.trunc = trunc
+        if max_curr_sum_sents is not None:
+            self.examples = [example for example in self.examples if len(example['curr_sum_sents']) <= max_curr_sum_sents]
         print('Finished loading {} set'.format(type))
         self.vocab = vocab
         self.label_temp = label_temp
