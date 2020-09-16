@@ -8,35 +8,25 @@ import pandas as pd
 from preprocess.constants import *
 
 
-MINI_CT = 100
-
-
-def get_records(type='validation', mini=False):
+def get_records(split='validation', mini=False):
     if mini:
         in_fn = os.path.join(out_dir, 'full_examples_small.csv')
-        if not os.path.exists(in_fn):
-            examples_df = pd.read_csv(os.path.join(out_dir, 'full_examples.csv'))
-            examples_df = examples_df.sample(n=15000, replace=False)
-            examples_df.to_csv(in_fn, index=False)
     else:
         in_fn = os.path.join(out_dir, 'full_examples.csv')
     print('Loading full examples from {}'.format(in_fn))
     examples_df = pd.read_csv(in_fn)
+    output_df = examples_df
+    if not mini:
+        if type(split) == str:
+            output_df = examples_df[examples_df['split'] == split]
+        elif type(split) == list:
+            output_df = examples_df[examples_df['split'].isin(set(split))]
+        else:
+            raise Exception('Split argument must either be string or a list of strings')
 
-    splits_fn = os.path.join(out_dir, 'splits.csv')
-    splits_df = pd.read_csv(splits_fn)[['mrn', 'account', 'split']]
-    subset_df = splits_df[splits_df['split'] == type]
-    subset_n = len(subset_df)
-    output_df = examples_df.merge(subset_df, on=['mrn', 'account'])
     output_n = len(output_df)
     mrn_n = len(output_df['mrn'].unique())
-
-    if not mini:
-        assert subset_n == output_n
-    print('Returning {} examples for {} MRNS from {} set'.format(output_n, mrn_n, type))
-    if mini and output_n > MINI_CT:
-        print('Sampling {} for mini {} dataset'.format(MINI_CT, type))
-        output_df = output_df.sample(n=MINI_CT, replace=False)
+    print('Returning {} examples for {} MRNS from {} set'.format(output_n, mrn_n, split))
     return output_df
 
 

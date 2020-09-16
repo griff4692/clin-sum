@@ -13,21 +13,11 @@ from preprocess.section_utils import resolve_course, sents_from_html
 from preprocess.utils import *
 
 
-def get_target_toks(mrn):
-    example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
-    example_df = pd.read_csv(example_fn)
-    if 'spacy_target_toks' not in example_df.columns:
-        print(mrn)
-        return []
-    return example_df['spacy_target_toks'].apply(
-        lambda x: sents_from_html(resolve_course(x), convert_lower=True)).tolist()
-
-
 if __name__ == '__main__':
-    train_df = get_records(type='train')
+    train_df = get_records(split='train')
     sents_str = train_df['spacy_target_toks'].apply(lambda x: sents_from_html(resolve_course(x), convert_lower=True))
     sents_str_flat = list(set(list(itertools.chain(*sents_str))))
-    sents_fn = os.path.join(out_dir, 'train_sents.csv')
+    sents_fn = os.path.join(out_dir, 'train_sents_v2.csv')
     df = pd.DataFrame(sents_str_flat, columns=['sents'])
     df.to_csv(sents_fn, index=False)
 
@@ -35,6 +25,6 @@ if __name__ == '__main__':
     sents_toks_flat = list(map(lambda x: x.split(' '), sents_str_flat))
 
     bm25 = BM25Plus(sents_toks_flat)
-    out_fn = os.path.join(out_dir, 'bm25.pk')
+    out_fn = os.path.join(out_dir, 'bm25_v2.pk')
     with open(out_fn, 'wb') as fd:
         pickle.dump(bm25, fd)

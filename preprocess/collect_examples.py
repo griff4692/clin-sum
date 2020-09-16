@@ -33,3 +33,17 @@ if __name__ == '__main__':
     out_fn = os.path.join(out_dir, 'full_examples.csv')
     print('Now saving {} examples to {}'.format(len(df), out_fn))
     df.to_csv(out_fn, index=False)
+
+    mrns = df['mrn'].unique().tolist()
+    small_mrns = set(np.random.choice(mrns, size=100, replace=False))
+    tiny_mrns = set(np.random.choice(list(small_mrns), size=10, replace=False))
+
+    small_fn = os.path.join(out_dir, 'full_examples_small.csv')
+    small_df = df[df['mrn'].isin(small_mrns)]
+    print('Saving {} examples to {}'.format(len(small_df), small_fn))
+    small_df.to_csv(small_fn, index=False)
+
+    tiny_fn = os.path.join(out_dir, 'full_examples_tiny.csv')
+    tiny_df = small_df[small_df['mrn'].isin(tiny_mrns)]
+    print('Saving {} examples to {}'.format(len(tiny_df), tiny_fn))
+    tiny_df.to_csv(tiny_fn, index=False)

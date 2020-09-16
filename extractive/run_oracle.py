@@ -104,7 +104,7 @@ def sent_align(source_sents, target_sents):
 
 def gen_summaries(record):
     target_sents = sents_from_html(resolve_course(record['spacy_target_toks']), convert_lower=True)
-    source_sents = sents_from_html(record['spacy_source_toks_packed'], convert_lower=True)
+    source_sents = sents_from_html(record['spacy_source_toks'], convert_lower=True)
     pred_obj = summarizer(source_sents, target_sents)
     n = len(target_sents)
     reference = ' <s> '.join(target_sents).strip()
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     rouge_types = args.rouge_types.split(',')
 
     mini = 0 <= args.max_n <= 100
-    validation_df = get_records(type='validation', mini=mini)
+    validation_df = get_records(split='validation', mini=mini)
     validation_records = validation_df.to_dict('records')
 
     if args.strategy == 'sent_align':

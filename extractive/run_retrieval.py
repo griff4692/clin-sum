@@ -22,7 +22,7 @@ from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_
 from preprocess.utils import *
 
 
-def gen_query(toks, max_q=20):
+def gen_query(toks, max_q=25):
     tok_set = set(toks)
     tok_set -= STOPWORDS
     filter_toks = [t for t in list(tok_set) if not np.char.isnumeric(t)]
@@ -64,7 +64,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    validation_df = get_records(type='validation')
+    mini = 0 <= args.max_n <= 100
+    validation_df = get_records(split='validation', mini=mini)
     validation_records = validation_df.to_dict('records')
 
     if args.max_n > 0:
@@ -72,12 +73,12 @@ if __name__ == '__main__':
         validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
     print('Loading BM25...')
-    bm25_fn = os.path.join(out_dir, 'bm25.pk')
+    bm25_fn = os.path.join(out_dir, 'bm25_v2.pk')
     with open(bm25_fn, 'rb') as fd:
         bm25 = pickle.load(fd)
 
     print('Loading original corpus (train sentences) for which BM25 is has indexed...')
-    train_sents_fn = os.path.join(out_dir, 'train_sents.csv')
+    train_sents_fn = os.path.join(out_dir, 'train_sents_v2.csv')
     corpus = pd.read_csv(train_sents_fn).sents.tolist()
 
     print('Let\'s retrieve!')
@@ -85,3 +86,5 @@ if __name__ == '__main__':
     out_fn = os.path.join(out_dir, 'predictions', 'retrieval_validation.csv')
     output_df = pd.DataFrame(outputs)
     output_df.to_csv(out_fn, index=False)
+
+    print('To evaluate, run: cd ../evaluations && python rouge.py --experiment retrieval')

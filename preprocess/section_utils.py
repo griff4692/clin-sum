@@ -180,6 +180,24 @@ def is_sent_tag(str):
     return str.startswith('<s') and str.endswith('>')
 
 
+def is_paragraph_tag(str):
+    return str.startswith('<p') and str.endswith('>')
+
+
+def paragraph_from_html(text):
+    split_text = re.split(HTML_REGEX, text)
+    is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
+    paragraphs = []
+    for i, str in enumerate(split_text):
+        str = str.strip()
+        if len(str) == 0:
+            continue
+        is_paragraph_body = i > 0 and is_paragraph_tag(split_text[i - 1])
+        if not is_tag[i] and is_paragraph_body:
+            paragraphs.append(str)
+    return paragraphs
+
+
 def sents_from_html(text, convert_lower=True, extract_lr=False):
     if convert_lower:
         text = text.lower()

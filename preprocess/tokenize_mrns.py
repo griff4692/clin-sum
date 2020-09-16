@@ -4,6 +4,7 @@ from functools import partial
 import os
 import re
 import string
+import sys
 from time import time
 
 import numpy as np
@@ -11,8 +12,9 @@ import pandas as pd
 from p_tqdm import p_uimap
 import spacy
 
-from constants import *
-from utils import *
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+from preprocess.constants import *
+from preprocess.utils import *
 
 HTML_REGEX = r'(<[a-z][^>]+>|<\/?[a-z]>)'
 NEWLINE_REGEX = r'\n+[-.#]+'
@@ -21,14 +23,17 @@ LONG_DELIMS = r'\-+ | \-+'
 SUB_HEADERS = r' (?=[A-z]+:)'
 
 
-def sent_segment(str):
+def sent_segment(str, sentencizer=None):
     sent_lists = [x.strip() for x in re.split(LIST_REGEX, str) if len(x.strip()) > 0]
 
     spacy_sents = []
     for sent in sent_lists:
         for newline_sent in re.split(NEWLINE_REGEX, sent):
             if len(newline_sent.strip()) > 0:
-                spacy_sents += [x.string.strip() for x in spacy_nlp(newline_sent).sents]
+                if sentencizer is None:
+                    spacy_sents += [x.string.strip() for x in spacy_nlp(newline_sent).sents]
+                else:
+                    spacy_sents += [x.string.strip() for x in sentencizer(newline_sent).sents]
 
     sub_sents = []
     for sent in spacy_sents:
@@ -70,8 +75,8 @@ def tokenize_example(text):
         elif re.search(HTML_REGEX, str) is None:
             sents = sent_segment(str) if len(str) > 50 else [str]
             for sent in sents:
-                if 'authored' in sent.lower() or 'signed' in sent.lower() or 'last updated' in sent.lower():
-                    continue
+                # if 'authored' in sent.lower() or 'signed' in sent.lower() or 'last updated' in sent.lower():
+                #     continue
                 spacy_tokens = [strip_punc(x.text) for x in spacy_nlp(sent)]
                 spacy_tokens = [x for x in spacy_tokens if len(x) > 0]
                 sent_len = len(spacy_tokens)
