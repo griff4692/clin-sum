@@ -9,3 +9,10 @@ def decode_utf8(str):
     This is necessary for the ROUGE nlp package consumption.
     """
     return unicodedata.normalize(u'NFKD', str).encode('ascii', 'ignore').decode('utf8').strip()
+
+
+def tens_to_np(t):
+    try:
+        return t.numpy()
+    except:
+        return t.cpu().numpy()

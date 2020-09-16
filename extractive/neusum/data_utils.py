@@ -9,8 +9,8 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
-from preprocess.constants import out_dir
 from extractive.neusum.vocab import Vocab
+from preprocess.constants import out_dir
 
 _DEFAULT_LABEL_TEMP = 10.0
 MAX_SENT_LEN = 30
@@ -72,7 +72,8 @@ def collate_fn(batch, full_data=False):
     sum_lens = [len(sid) for sid in sum_ids]
     sum_att_mask = mask_2D(sum_lens)
 
-    target_dist_pad = pad_sequence(target_dist, batch_first=True, padding_value=0.0) if target_dist is not None else None
+    target_dist_pad = (
+        pad_sequence(target_dist, batch_first=True, padding_value=0.0) if target_dist is not None else None)
 
     counts = {
         'source_sent_lens_flat': torch.LongTensor(source_sent_lens_flat),
@@ -90,7 +91,8 @@ def collate_fn(batch, full_data=False):
         metadata = {
             'source_sents': [b['source_sents'] for b in batch],
             'mrn': [b['mrn'] for b in batch],
-            'account': [b['account'] for b in batch]
+            'account': [b['account'] for b in batch],
+            'reference': [' <s> '.join(b['target_sents']) for b in batch]
         }
         return source_ids_flat_pad, sum_ids_flat_pad, target_dist_pad, counts, masks, metadata
     return source_ids_flat_pad, sum_ids_flat_pad, target_dist_pad, counts, masks
@@ -103,7 +105,9 @@ def truncate(str, max_len):
 
 
 class SingleExtractionDataset(Dataset):
-    def __init__(self, vocab, type, mini, label_temp=_DEFAULT_LABEL_TEMP, max_curr_sum_sents=None, trunc=True):
+    def __init__(
+            self, vocab, type, mini, label_temp=_DEFAULT_LABEL_TEMP, max_curr_sum_sents=None, trunc=True, max_n=None
+    ):
         mini_str = '_mini' if mini else ''
         in_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}.json'.format(type, mini_str))
         print('Loading {} set from {}'.format(type, in_fn))
@@ -113,6 +117,12 @@ class SingleExtractionDataset(Dataset):
         if max_curr_sum_sents is not None:
             self.examples = [example for example in self.examples if len(example['curr_sum_sents']) <= max_curr_sum_sents]
         print('Finished loading {} set'.format(type))
+
+        n = len(self.examples)
+        if max_n is not None and max_n < n:
+            print('Taking random sample from {} examples of size {}'.format(n, max_n))
+            self.examples = np.random.choice(self.examples, size=max_n, replace=False)
+
         self.vocab = vocab
         self.label_temp = label_temp
 
@@ -142,6 +152,7 @@ class SingleExtractionDataset(Dataset):
                 seen.add(source_sent)
 
         source_sents_dedup_trunc = [truncate(x, MAX_SENT_LEN) for x in source_sents_dedup]
+
         if len(example['curr_sum_sents']) == 0:
             curr_sum_sents = [['<s>']]
         else:
@@ -164,6 +175,7 @@ class SingleExtractionDataset(Dataset):
         target_dist = softmax(min_max_norm(rel_rouges), temp=self.label_temp)
         sum_ids = list(map(self.to_ids, curr_sum_sents))
         source_ids = list(map(self.to_ids, source_sents_dedup_trunc))
+
         return {
             'mrn': example['mrn'],
             'account': example['account'],
@@ -171,7 +183,8 @@ class SingleExtractionDataset(Dataset):
             'source_ids': source_ids,
             'target_dist': target_dist,
             'rel_rouges': rel_rouges,
-            'source_sents': source_sents_dedup
+            'source_sents': source_sents_dedup,
+            'target_sents': example['target_sents']
         }
 
     def __len__(self):

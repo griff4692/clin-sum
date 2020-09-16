@@ -21,6 +21,8 @@ from torch.utils.data import DataLoader
 from extractive.neusum.attention import Attention
 from extractive.neusum.data_utils import collate_fn, test_collate_fn, mask_2D, SingleExtractionDataset
 from extractive.neusum.vocab import Vocab
+from preprocess.constants import out_dir
+from utils import tens_to_np
 
 MAX_GEN_SUM_SENTS = 100
 MAX_GEN_SUM_TOK_CT = 1024
@@ -48,8 +50,8 @@ class NeuSum(pl.LightningModule):
         )
 
         self.dropout = nn.Dropout(p=0.25)
-
-        s_dim = args.hidden_dim * 8
+        self.sum_aware = self.args.max_curr_sum_sents > 0
+        s_dim = args.hidden_dim * 8 if self.sum_aware else args.hidden_dim * 4
         self.scorer = nn.Sequential(
             self.dropout,
             nn.Linear(s_dim, s_dim),
@@ -75,11 +77,8 @@ class NeuSum(pl.LightningModule):
         y_amax = y_dist.argmax(dim=1)
         return loss_func(y_hat_scores, y_amax)
 
-    def kld(self, y_hat_scores, y_dist, y_mask=None):
-        mask_max_trunc_idx = min(y_hat_scores.size()[1], y_mask.size()[1])
-        y_mask = y_mask[:, :mask_max_trunc_idx]
+    def kld(self, y_hat_scores, y_dist):
         loss_func = nn.KLDivLoss(log_target=False, reduction='batchmean')
-        y_hat_scores.masked_fill_(y_mask, float('-inf'))
         y_hat_lprob = F.log_softmax(y_hat_scores, dim=-1)
         return loss_func(y_hat_lprob, y_dist)
 
@@ -94,7 +93,6 @@ class NeuSum(pl.LightningModule):
         if type(sent_h_flat) == tuple:
             sent_h_flat = sent_h_flat[0]
         sent_h_flat = sent_h_flat.transpose(1, 0).contiguous().view(n, -1)
-
         sent_h = []
         start_idx = 0
         for seq_len in seq_lens:
@@ -116,13 +114,16 @@ class NeuSum(pl.LightningModule):
             self.source_doc_encoder
         )
 
-        sum_h = self.hier_encode(
-            sum_ids, counts['sum_sent_lens_flat'], counts['sum_lens'], self.sum_sent_encoder,
-            self.sum_doc_encoder
-        )
+        score_input = source_h
+        if self.sum_aware:
+            sum_h = self.hier_encode(
+                sum_ids, counts['sum_sent_lens_flat'], counts['sum_lens'], self.sum_sent_encoder,
+                self.sum_doc_encoder
+            )
 
-        sum_aware_source_h, _ = self.sum_aware_att(source_h, sum_h, masks['sum_att_mask'])
-        score_input = torch.cat([source_h, sum_aware_source_h], dim=2)
+            sum_aware_source_h, _ = self.sum_aware_att(source_h, sum_h, masks['sum_att_mask'])
+            score_input = torch.cat([source_h, sum_aware_source_h], dim=2)
+
         scores = self.scorer(score_input).squeeze(-1)
         return scores
 
@@ -130,10 +131,15 @@ class NeuSum(pl.LightningModule):
         source_ids_flat_pad, sum_ids_flat_pad, y_dist, counts, masks = batch
         y_hat_scores = self(source_ids_flat_pad, sum_ids_flat_pad, counts, masks)
 
+        y_mask = masks['source_mask']
+        mask_max_trunc_idx = min(y_hat_scores.size()[1], y_mask.size()[1])
+        y_mask = y_mask[:, :mask_max_trunc_idx]
+        y_hat_scores.masked_fill_(y_mask, float('-inf'))
+
         if self.objective == 'bce':
             loss_val = self.bce(y_hat_scores, y_dist)
         else:
-            loss_val = self.kld(y_hat_scores, y_dist, y_mask=masks['source_mask'])
+            loss_val = self.kld(y_hat_scores, y_dist)
         return loss_val
 
     def training_step(self, batch, batch_idx):
@@ -155,13 +161,22 @@ class NeuSum(pl.LightningModule):
         sum_sent_toks = []
         sum_len = 0
         source_ids_flat_pad, sum_ids_flat_pad, target_dist, counts, masks, metadata = batch
-        gold_sent_order = list(np.argsort(-target_dist.squeeze().numpy()))
+        gold_sent_order = list(np.argsort(tens_to_np(-target_dist.squeeze())))
         mrn = metadata['mrn'][0]
         rel_ranks = []
         account = metadata['account'][0]
         for _ in range(MAX_GEN_SUM_SENTS):
-            y_hat_scores = self(source_ids_flat_pad, sum_ids_flat_pad, counts, masks)
-            y_hat_scores = y_hat_scores.squeeze(0).numpy()
+            i0 = source_ids_flat_pad.to(self.device_name)
+            i1 = sum_ids_flat_pad.to(self.device_name)
+            i2 = {}
+            i3 = {}
+            for k, v in counts.items():
+                i2[k] = v.to(self.device_name)
+            for k, v in masks.items():
+                i3[k] = v.to(self.device_name)
+
+            y_hat_scores = self(i0, i1, i2, i3)
+            y_hat_scores = tens_to_np(y_hat_scores.squeeze(0))
             if len(sent_order) > 0:
                 y_hat_scores[sent_order] = float('-inf')
 
@@ -177,7 +192,7 @@ class NeuSum(pl.LightningModule):
             chosen_sent_toks = metadata['source_sents'][0][max_idx]
             sum_sent_toks.append(chosen_sent_toks)
             num_sum_sents = len(sent_order)
-            chosen_sent_ids = list(source_ids_flat_pad[max_idx][:sent_sum_len].numpy())
+            chosen_sent_ids = list(tens_to_np(source_ids_flat_pad[max_idx][:sent_sum_len]))
             sum_ids.append(chosen_sent_ids)
             sum_sent_lens.append(sent_sum_len)
             sum_ids_flat = list(map(torch.LongTensor, sum_ids))
@@ -191,6 +206,7 @@ class NeuSum(pl.LightningModule):
         result.account = account
         result.sent_order = ','.join([str(s) for s in sent_order])
         result.sum_sent_toks = ' <s> '.join(sum_sent_toks)
+        result.reference = metadata['reference'][0]
 
         result.rel_r1 = rel_ranks[0]
         result.rel_r2 = rel_ranks[1]
@@ -209,16 +225,20 @@ class NeuSum(pl.LightningModule):
         accounts = test_outputs.account
         sent_orders = test_outputs.sent_order
         sum_sents = test_outputs.sum_sent_toks
+        references = test_outputs.reference
 
         output_df = {
             'mrn': mrns,
-            'accounts': accounts,
+            'account': accounts,
             'sent_orders': sent_orders,
-            'sum_sents': sum_sents
+            'prediction': sum_sents,
+            'reference': references
         }
         output_df = pd.DataFrame(output_df)
-        out_fn = os.path.join('weights', args.experiment, 'predictions.csv')
-        print('Saving predictions to {}'.format(out_fn))
+        exp_str = 'neusum_{}'.format(self.args.experiment)
+        out_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(exp_str))
+        print('To evaluate, run: cd ../../evaluations && python rouge.py --experiment {}'.format(exp_str))
+
         output_df.to_csv(out_fn, index=False)
 
         eval_result = pl.EvalResult()
@@ -242,12 +262,13 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', default=50, type=int)
     parser.add_argument('--lr', default=1e-3, type=float)
     parser.add_argument('-mini', default=False, action='store_true')
-    parser.add_argument('--objective', default='bce', choices=['bce', 'kld'])
+    parser.add_argument('--objective', default='kld', choices=['bce', 'kld'])
     parser.add_argument('-cpu', default=False, action='store_true')
-    parser.add_argument('--q_temp', default=1.0, type=float, help='Temperature smoothing coefficient when taking '
+    parser.add_argument('--q_temp', default=5.0, type=float, help='Temperature smoothing coefficient when taking '
                                                                   'softmax over true label distribution.'
                         )
     parser.add_argument('-eval_only', default=False, action='store_true')
+    parser.add_argument('--max_eval', default=None, type=int)
     parser.add_argument('--max_curr_sum_sents', default=50, type=int)
 
     args = parser.parse_args()
@@ -282,9 +303,9 @@ if __name__ == '__main__':
         train_dataset = SingleExtractionDataset(
             vocab, type='train', mini=args.mini, label_temp=args.q_temp, max_curr_sum_sents=args.max_curr_sum_sents)
         val_dataset = SingleExtractionDataset(
-            vocab, type='validation', mini=args.mini, max_curr_sum_sents=args.max_curr_sum_sents)
+            vocab, type='validation', mini=args.mini, label_temp=args.q_temp, max_curr_sum_sents=args.max_curr_sum_sents)
         test_dataset = SingleExtractionDataset(
-            vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False)
+            vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False, max_n=args.max_eval)
 
         per_device_batch_size = args.batch_size if gpus is None else args.batch_size // gpus
         if per_device_batch_size < args.batch_size:
@@ -308,10 +329,10 @@ if __name__ == '__main__':
         if not args.mini:
             logger = WandbLogger(name=args.experiment, save_dir=weights_dir, project='clinsum', log_model=False)
 
-        early_stop_callback = EarlyStopping(
+        early_stop_callback = None if args.mini else EarlyStopping(
             monitor='val_early_stop_on',
-            min_delta=1e-3,
-            patience=2,
+            min_delta=1e-4,
+            patience=3,
             verbose=True,
             mode='min'
         )
@@ -330,6 +351,7 @@ if __name__ == '__main__':
             auto_select_gpus=True,
             checkpoint_callback=checkpoint_callback,
             terminate_on_nan=True,
+            # gradient_clip_val=0.5,
             # auto_lr_find=True,
             # auto_scale_batch_size='binsearch' will find largest batch size that fits into GPU memory
         )
@@ -341,8 +363,11 @@ if __name__ == '__main__':
         assert len(checkpoint_fns) == 1
         model = NeuSum.load_from_checkpoint(checkpoint_fns[0], args=args, vocab=vocab)
         test_dataset = SingleExtractionDataset(
-            model.vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False)
-        test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=1, collate_fn=test_collate_fn)
-        trainer = pl.Trainer()
-    model.freeze()
+            model.vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False, max_n=args.max_eval)
+        test_loader = DataLoader(
+            test_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=test_collate_fn)
+        trainer = pl.Trainer(
+            gpus=1 if gpus is not None else 0,
+            distributed_backend=None
+        )
     trainer.test(model, test_dataloaders=test_loader)
