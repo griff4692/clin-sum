@@ -67,7 +67,6 @@ def extract_entities(mrn):
             rows.append(_process(mrn, account, str(entity), cui, note_id, is_target[i]))
 
     df = pd.DataFrame(rows)
-    # df = df[((~df['snomed_cid'].isnull()) | (df['umls_type'].isin(WHITELIST_UMLS_TYPES)))]
     entity_n = df.shape[0]
     if entity_n == 0:
         print('No entities found for MRN={}'.format(mrn))

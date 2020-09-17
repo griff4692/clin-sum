@@ -3,6 +3,7 @@ from functools import partial
 import os
 import re
 import string
+import sys
 from time import time
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 from p_tqdm import p_uimap
 from scipy.stats import describe
 
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from constants import *
 from fragment_utils import Fragments
 from preprocess.utils import *
@@ -39,12 +41,9 @@ def get_extractive_fragments(mrn):
     mrn_dir = os.path.join(out_dir, 'mrn', mrn)
     examples_fn = os.path.join(mrn_dir, 'examples.csv')
     examples_df = pd.read_csv(examples_fn)
+    assert len(examples_df) > 0
 
-    examples_df.dropna(subset=['spacy_source_toks', 'spacy_target_toks'], inplace=True)
     frag_dicts = defaultdict(list)
-    if examples_df.shape[0] == 0:
-        print('MRN={} has no valid tokens'.format(mrn))
-        return frag_dicts
     for example in examples_df.to_dict('records'):
         source_toks = sent_toks_from_html(example['spacy_source_toks'])
         target_toks = sent_toks_from_html(resolve_course(example['spacy_target_toks']))

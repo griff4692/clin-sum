@@ -26,13 +26,6 @@ def determine_split(mrn, train_mrns, val_mrns, test_mrns):
         raise Exception('Phantom MRN={} not found in train, validation, or test sets'.format(mrn))
 
 
-def collect_valid_accounts(mrn):
-    mrn_dir = os.path.join(out_dir, 'mrn', mrn)
-    examples_fn = os.path.join(mrn_dir, 'examples.csv')
-    examples_df = pd.read_csv(examples_fn)
-    return examples_df[['mrn', 'account']].to_dict('records')
-
-
 def disjoint(a, b):
     return len(a.intersection(b)) == 0
 
@@ -44,23 +37,21 @@ def validate_splits(splits):
 
 
 if __name__ == '__main__':
-    print('Loading valid examples...')
-    _, _, mrns = get_mrn_status_df('valid_example')
+    full_example_fn = os.path.join(out_dir, 'full_examples.csv')
+    print('Loading full examples...')
+    df = pd.read_csv(full_example_fn)
+
+    mrns = list(df['mrn'].unique())
+    mrn_n = len(mrns)
+    print('Loaded {} examples for {} mrns'.format(len(df), mrn_n))
+
     print('Getting HIV patients...')
     with open(hiv_mrn_fn, 'rb') as fd:
         hiv_mrns = set(pickle.load(fd)['mrn'].unique().tolist())
 
-    n = len(mrns)
-    print('Processing {} mrns'.format(n))
-    start_time = time()
-
-    output = p_imap(collect_valid_accounts, mrns, num_cpus=0.5)
-    flattened_output = list(itertools.chain(*output))
-
-    duration(start_time)
     print('Computing train/val/test splits...')
     train_mrns, other = train_test_split(mrns, train_size=0.9)
-    val_mrns, test_mrns = train_test_split(other, train_size=0.5)
+    val_mrns, test_mrns = train_test_split(other, train_size=0.25)
     splits = {
         'train': set(train_mrns),
         'validation': set(val_mrns),
@@ -71,8 +62,6 @@ if __name__ == '__main__':
     validate_splits(splits)
 
     print('Assigning specific visits to train-test-validation based on MRN splits...')
-    df = pd.DataFrame(flattened_output)
-    df['mrn'] = df['mrn'].astype('str')
     df['split'] = df['mrn'].apply(lambda mrn: determine_split(mrn, train_mrns, val_mrns, test_mrns))
     df['hiv'] = df['mrn'].apply(lambda mrn: mrn in hiv_mrns)
 
@@ -81,6 +70,5 @@ if __name__ == '__main__':
         n_ex = len(df[df['split'] == type])
         print('{} set: {} mrns across {} visits'.format(type, n_mrn, n_ex))
 
-    out_fn = os.path.join(out_dir, 'splits.csv')
-    print('Saving splits to {}'.format(out_fn))
-    df.to_csv(out_fn, index=False)
+    print('Saving splits to {}'.format(full_example_fn))
+    df.to_csv(full_example_fn, index=False)

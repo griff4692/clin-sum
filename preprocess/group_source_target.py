@@ -2,15 +2,17 @@ from datetime import datetime
 from functools import partial
 import os
 import re
+import sys
 from time import time
 
 import pandas as pd
 pd.options.mode.chained_assignment = None
 from p_tqdm import p_imap
 
-from constants import *
-from preprocesss.utils import *
-from section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+from preprocess.constants import *
+from preprocess.utils import *
+from preprocess.section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
 
 
 def stringify(x):
