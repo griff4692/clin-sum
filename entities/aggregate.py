@@ -42,7 +42,7 @@ if __name__ == '__main__':
     accounts = ent_df['account'].unique().tolist()
     num_mrns = len(ent_df['mrn'].unique())
     print('Collected {} entities for {} unique visits across {} patients'.format(len(ent_df), len(accounts), num_mrns))
-    outputs = list(p_uimap(generate_counts, accounts))
+    outputs = list(p_uimap(generate_counts, accounts, num_cpus=0.5))
     outputs_flat = list(itertools.chain(*outputs))
 
     output_df = pd.DataFrame(outputs_flat)

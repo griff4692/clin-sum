@@ -9,14 +9,16 @@ from constants import *
 from utils import *
 
 COLS = [
-    'mrn', 'account', 'spacy_source_toks', 'spacy_target_toks', 'spacy_source_tok_ct', 'spacy_target_tok_ct',
-    'coverage', 'density', 'compression', 'fragments'
+    'mrn', 'account', 'source_str', 'target_str', 'spacy_source_toks', 'spacy_target_toks', 'spacy_source_tok_ct',
+    'spacy_target_tok_ct', 'coverage', 'density', 'compression', 'fragments'
 ]
 
 
 def collect_examples(mrn):
     mrn_dir = os.path.join(out_dir, 'mrn', str(mrn))
-    return pd.read_csv(os.path.join(mrn_dir, 'examples.csv'))[COLS]
+    df = pd.read_csv(os.path.join(mrn_dir, 'examples.csv'))[COLS]
+    assert len(df) > 0
+    return df
 
 
 if __name__ == '__main__':

@@ -16,28 +16,24 @@ import spacy
 import scispacy
 from scispacy.abbreviation import AbbreviationDetector
 from scispacy.linking import EntityLinker
+
+from medcat.cat import CAT
+from medcat.utils.vocab import Vocab
+from medcat.cdb import CDB
+
 from tqdm import tqdm
 from p_tqdm import p_uimap
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
-from preprocess.section_utils import resolve_course, sents_from_html
+from preprocess.section_utils import resolve_course, paragraph_from_html
+from preprocess.tokenize_mrns import sent_segment
 from preprocess.utils import *
 
 
-blacklist_cui_name = [
-    'present illness',
-    'medical history',
-    'admission',
-    'discharge'
-    'follow-up',
-    'hospital course',
-    'sitting position',
-    'symptoms',
-    'medical examination',
-    'chief complaint',
-]
-
+whitelist_tuis = {
+    'T034'  # Lab results
+}
 
 whitelist_semgroup = {
     'Chemicals & Drugs',
@@ -46,83 +42,62 @@ whitelist_semgroup = {
 }
 
 
-def ok_cui_name(cui_name):
-    cnl = cui_name.lower()
-    for x in blacklist_cui_name:
-        if x in cnl:
-            return False
-    return True
-
-
-def _process(mrn, account, text, cui, is_t):
-    is_core = cui in core_cui_set
-    spacy_ent = cui_to_ent_map[cui]
-
-    cui_name = spacy_ent[1]
-    tuis = spacy_ent[3]
-    groups = list(set([tui_group_map[tui] for tui in tuis]))
-    definition = spacy_ent[4]
-
-    matching_groups = [group for group in groups if group in whitelist_semgroup]
-    is_relevant = (is_core or len(matching_groups) > 0) and ok_cui_name(cui_name)
-
-    if not is_relevant:
-        return None
-
+def _process(mrn, account, entity, is_t, sent_idx):
+    is_core = entity['cui'] in core_cui_set
+    if entity['tui'] is None or entity['tui'] == 'None':
+        sem_group = None
+    else:
+        sem_group = tui_group_map[entity['tui']]
+    is_relevant = sem_group is None or is_core or sem_group in whitelist_semgroup or entity['tui'] in whitelist_tuis
     row = {
         'mrn': mrn,
         'account': account,
         'is_target': is_t,
         'is_source': not is_t,
-        'extracted_text': text,
-        'cui': cui,
+        'cui': entity['cui'],
+        'cui_name': entity['pretty_name'],
         'is_core': is_core,
-        'cui_name': cui_name,
-        'tui': tuis[0],
-        'sem_group': groups[0],
-        'definition': definition,
-        'other_tuis': None if len(tuis) == 1 else json.dumps(tuis[1:]),
-        'other_groups': None if len(groups) == 1 else json.dumps(groups[1:]),
+        'tui': entity['tui'],
+        'sem_group': sem_group,
+        'umls_type': entity['type'],
+        'source_value': entity['source_value'],
+        'medcat_acc': entity['acc'],
+        'sent_idx': sent_idx
     }
+
+    if not is_relevant:
+        return None
 
     return row
 
 
 def extract_entities(record):
-    target_inventory = defaultdict(list)
     rows = []
     mrn = record['mrn']
     account = record['account']
 
-    source_sents = sents_from_html(record['spacy_source_toks'], convert_lower=False)
-    target_sents = sents_from_html(resolve_course(record['spacy_target_toks']), convert_lower=False)
+    source_paragraphs = [sent_segment(t, sentencizer=sentencizer) for t in paragraph_from_html(record['source_str'])]
+    target_paragraphs = [sent_segment(t, sentencizer=sentencizer) for t in paragraph_from_html(record['target_str'])]
+    assert len(source_paragraphs) >= 1 and len(target_paragraphs) >= 1
+    source_sents = list(itertools.chain(*source_paragraphs))
+    target_sents = list(itertools.chain(*target_paragraphs))
 
-    for source_sent in source_sents:
-        for entity in spacy_nlp(source_sent).ents:
-            kb_ents = entity._.kb_ents
-            if len(kb_ents) == 0:
-                continue
-            cui = kb_ents[0][0]
-            row = _process(mrn, account, entity.string.strip(), cui, False)
+    num_source_sents = len(source_sents)
+    num_target_sents = len(target_sents)
+
+    sent_num = list(range(num_source_sents)) + list(range(num_target_sents))
+    is_target = ([False] * num_source_sents) + ([True] * num_target_sents)
+    all_sents = source_sents + target_sents
+
+    for i, sent in enumerate(all_sents):
+        entities = cat.get_entities(sent)
+        sent_idx = sent_num[i]
+        for entity in entities:
+            row = _process(mrn, account, entity, is_target[i], sent_idx)
             if row is not None:
                 rows.append(row)
 
-    for target_sent in target_sents:
-        for entity in spacy_nlp(target_sent).ents:
-            kb_ents = entity._.kb_ents
-            if len(kb_ents) == 0:
-                continue
-            cui = kb_ents[0][0]
-            row = _process(mrn, account, entity.string.strip(), cui, True)
-            if row is not None:
-                rows.append(row)
-                target_inventory[cui].append(target_sent)
-
-    inventory_fn = os.path.join(out_dir, 'entity', 'inventory', '{}_{}.json'.format(str(mrn), str(account)))
-    ents_fn = os.path.join(out_dir, 'entity', 'entities', '{}_{}.csv'.format(str(mrn), str(account)))
-    with open(inventory_fn, 'w') as fd:
-        json.dump(target_inventory, fd)
-
+    ents_fn = os.path.join(entities_dir, '{}_{}.csv'.format(str(mrn), str(account)))
     df = pd.DataFrame(rows)
     df.to_csv(ents_fn, index=False)
 
@@ -136,8 +111,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     base_dir = os.path.join(out_dir, 'entity')
-    entities_dir = os.path.join(base_dir, 'entities')
-    inventory_dir = os.path.join(base_dir, 'inventory')
+    entities_dir = os.path.join(base_dir, 'entities_medcat')
 
     if args.collect:
         ent_fns = list(map(lambda x: os.path.join(entities_dir, x), os.listdir(entities_dir)))
@@ -152,28 +126,14 @@ if __name__ == '__main__':
         out_ent_fn = os.path.join(base_dir, 'full_entities.csv')
         print('Saving {} entities to {}'.format(len(ent_df), out_ent_fn))
         ent_df.to_csv(out_ent_fn, index=False)
-
-        inventory_fns = list(map(lambda x: os.path.join(inventory_dir, x), os.listdir(inventory_dir)))
-        target_inventory = list(tqdm(map(lambda fn: json.load(open(fn)), inventory_fns), total=len(inventory_fns)))
-
-        full_inventory = defaultdict(list)
-        for dict in target_inventory:
-            for cui, sents in dict.items():
-                full_inventory[cui] += sents
-        for k, v in full_inventory.items():
-            full_inventory[k] = Counter(v)
-        out_inventory_fn = os.path.join(base_dir, 'target_cui_sent_index.json')
-        with open(out_inventory_fn, 'w') as fd:
-            json.dump(full_inventory, fd)
     else:
         if not os.path.exists(base_dir):
             print('Creating {} dir'.format(base_dir))
             os.mkdir(base_dir)
+        if not os.path.exists(entities_dir):
             os.mkdir(entities_dir)
-            os.mkdir(inventory_dir)
 
         mini_str = '_small' if args.mini else ''
-
         snomed_core_fn = '../data/SNOMEDCT_CORE_SUBSET_202005/SNOMEDCT_CORE_SUBSET_202005.txt'
         semgroups_fn = '../data/umls_semgroups.txt'
 
@@ -185,19 +145,30 @@ if __name__ == '__main__':
         sem_groups_df = pd.read_csv(semgroups_fn, delimiter='|').dropna()
         tui_group_map = dict(zip(sem_groups_df['tui'].tolist(), sem_groups_df['sem_group'].tolist()))
 
-        print('Loading spacy...')
-        spacy_nlp = spacy.load('en_core_sci_lg')
-        abbreviation_pipe = AbbreviationDetector(spacy_nlp)
-        spacy_nlp.add_pipe(abbreviation_pipe)
+        vocab = Vocab()
+        print('Loading vocabulary...')
+        # Load the vocab model you downloaded
+        vocab.load_dict('../data/medcat/vocab.dat')
 
+        # Load the cdb model you downloaded
+        cdb = CDB()
+        print('Loading model...')
+        cdb.load_dict('../data/medcat/cdb.dat')
+
+        # create cat
+        print('Creating MedCAT pipeline...')
+        cat = CAT(cdb=cdb, vocab=vocab)
+
+        print('Loading Spacy...')
+        sentencizer = spacy.load('en_core_sci_lg', disable=['tagger', 'parser', 'ner', 'textcat'])
+        sentencizer.add_pipe(sentencizer.create_pipe('sentencizer'))
         print('Loading UMLS entity linker...')
         linker = EntityLinker(resolve_abbreviations=True, name='umls')
         cui_to_ent_map = linker.kb.cui_to_entity
-        spacy_nlp.add_pipe(linker)
         print('Let\'s go get some entities...')
 
         splits = ['validation', 'train']
         examples = get_records(split=splits, mini=args.mini).to_dict('records')
-        num_ents = np.array(list(p_uimap(extract_entities, examples)))
 
+        num_ents = np.array(list(p_uimap(extract_entities, examples, num_cpus=0.75)))
         print('An average of {} entities extracted per visit'.format(num_ents.mean()))

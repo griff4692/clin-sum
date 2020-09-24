@@ -4,6 +4,7 @@ from multiprocessing import Manager, Pool, Value
 import os
 import pickle
 import re
+import sys
 from time import time
 
 import numpy as np
@@ -11,8 +12,9 @@ import pandas as pd
 from p_tqdm import p_imap
 from sklearn.model_selection import train_test_split
 
-from constants import *
-from utils import *
+sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+from preprocess.constants import *
+from preprocess.utils import *
 
 
 def determine_split(mrn, train_mrns, val_mrns, test_mrns):
