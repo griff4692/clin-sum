@@ -18,7 +18,7 @@ import pandas as pd
 from p_tqdm import p_uimap
 
 from preprocess.constants import out_dir
-from preprocess.section_utils import resolve_course, sents_from_html, sent_toks_from_html
+from preprocess.section_utils import sents_from_html, sent_toks_from_html
 from preprocess.utils import *
 
 
@@ -35,7 +35,7 @@ def gen_query(toks, max_q=25):
 
 
 def gen_summaries(record):
-    target_sents = sents_from_html(resolve_course(record['spacy_target_toks']), convert_lower=True)
+    target_sents = sents_from_html(record['spacy_target_toks'], convert_lower=True)
     summary_sents = list(map(
         lambda sent: bm25.get_top_n(gen_query(sent.split(' ')), corpus, n=1)[0],
         target_sents
@@ -73,16 +73,16 @@ if __name__ == '__main__':
         validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
     print('Loading BM25...')
-    bm25_fn = os.path.join(out_dir, 'bm25_v2.pk')
+    bm25_fn = os.path.join(out_dir, 'bm25.pk')
     with open(bm25_fn, 'rb') as fd:
         bm25 = pickle.load(fd)
 
     print('Loading original corpus (train sentences) for which BM25 is has indexed...')
-    train_sents_fn = os.path.join(out_dir, 'train_sents_v2.csv')
+    train_sents_fn = os.path.join(out_dir, 'train_sents.csv')
     corpus = pd.read_csv(train_sents_fn).sents.tolist()
 
     print('Let\'s retrieve!')
-    outputs = list(filter(None, p_uimap(gen_summaries, validation_records)))
+    outputs = list(filter(None, p_uimap(gen_summaries, validation_records, num_cpus=0.8)))
     out_fn = os.path.join(out_dir, 'predictions', 'retrieval_validation.csv')
     output_df = pd.DataFrame(outputs)
     output_df.to_csv(out_fn, index=False)

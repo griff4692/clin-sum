@@ -9,15 +9,15 @@ from rank_bm25 import BM25Plus
 import pandas as pd
 
 from preprocess.constants import out_dir
-from preprocess.section_utils import resolve_course, sents_from_html
+from preprocess.section_utils import sents_from_html
 from preprocess.utils import *
 
 
 if __name__ == '__main__':
     train_df = get_records(split='train')
-    sents_str = train_df['spacy_target_toks'].apply(lambda x: sents_from_html(resolve_course(x), convert_lower=True))
+    sents_str = train_df['spacy_target_toks'].apply(lambda x: sents_from_html(x, convert_lower=True))
     sents_str_flat = list(set(list(itertools.chain(*sents_str))))
-    sents_fn = os.path.join(out_dir, 'train_sents_v2.csv')
+    sents_fn = os.path.join(out_dir, 'train_sents.csv')
     df = pd.DataFrame(sents_str_flat, columns=['sents'])
     df.to_csv(sents_fn, index=False)
 
@@ -25,6 +25,6 @@ if __name__ == '__main__':
     sents_toks_flat = list(map(lambda x: x.split(' '), sents_str_flat))
 
     bm25 = BM25Plus(sents_toks_flat)
-    out_fn = os.path.join(out_dir, 'bm25_v2.pk')
+    out_fn = os.path.join(out_dir, 'bm25.pk')
     with open(out_fn, 'wb') as fd:
         pickle.dump(bm25, fd)

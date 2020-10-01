@@ -148,7 +148,7 @@ if __name__ == '__main__':
         np.random.seed(1992)
         validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
-    outputs = list(filter(None, p_uimap(gen_summaries, validation_records)))
+    outputs = list(filter(None, p_uimap(gen_summaries, validation_records, num_cpus=0.8)))
     n = len(outputs)
     exp_str = 'oracle_{}'.format(args.strategy)
     out_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(exp_str))

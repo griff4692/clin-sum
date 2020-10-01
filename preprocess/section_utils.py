@@ -176,12 +176,28 @@ def sent_toks_from_html(text, convert_lower=True):
         lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower, extract_lr=False)))))
 
 
+def paragraph_toks_from_html(text):
+    return list(itertools.chain(*list(map(lambda x: x.split(' '), paragraph_from_html(text)))))
+
+
+def is_example_tag(str):
+    return str.startswith('<e') and str.endswith('>')
+
+
+def is_note_tag(str):
+    return str.startswith('<d') and str.endswith('>')
+
+
 def is_sent_tag(str):
     return str.startswith('<s') and str.endswith('>')
 
 
 def is_paragraph_tag(str):
     return str.startswith('<p') and str.endswith('>')
+
+
+def is_course_tag(str):
+    return str.startswith('<c') and str.endswith('>')
 
 
 def paragraph_from_html(text):
@@ -196,6 +212,25 @@ def paragraph_from_html(text):
         if not is_tag[i] and is_paragraph_body:
             paragraphs.append(str)
     return paragraphs
+
+
+def replace_paragraphs(text, new_paragraphs):
+    new_text = []
+    split_text = re.split(HTML_REGEX, text)
+    para_idx = 0
+    is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
+    for i, str in enumerate(split_text):
+        str = str.strip()
+        if len(str) == 0:
+            continue
+        is_paragraph_body = i > 0 and is_paragraph_tag(split_text[i - 1])
+        if not is_tag[i] and is_paragraph_body:
+            new_text.append(new_paragraphs[para_idx])
+            para_idx += 1
+        else:
+            new_text.append(str)
+    assert len(new_paragraphs) == para_idx
+    return ' '.join(new_text)
 
 
 def sents_from_html(text, convert_lower=True, extract_lr=False):
@@ -220,12 +255,13 @@ def sents_from_html(text, convert_lower=True, extract_lr=False):
 
 
 def resolve_course(text):
-    courses = list(map(lambda x: x.lstrip('<c>').rstrip('</c>').strip(), text.split('</c> <c>')))
-    max_len = 0
-    max_course = None
-    for course in courses:
-        cn = len(course)
-        if cn > max_len:
-            max_len = cn
-            max_course = course
-    return max_course
+    open_tag = r'<c>'
+    close_tag = r'</c>'
+    courses = []
+    for match in re.finditer(open_tag, text):
+        start_idx = match.start()
+        end_idx = re.search(close_tag, text[start_idx:]).end() + start_idx
+        courses.append(text[start_idx:end_idx])
+
+    course_lens = np.array([len(course) for course in courses])
+    return courses[course_lens.argmax()]

@@ -19,7 +19,7 @@ from preprocess.section_utils import sents_from_html
 MAX_TARGET_SENTS = 100  # For skipping examples when generating dataset
 MAX_SOURCE_SENTS = 2000
 
-MAX_SUMMARIES = 20000
+MAX_SUMMARIES = 100000
 MAX_SUM_SENTS = 50
 
 # Don't include dubious training examples.  Not a clear enough signal which sentence to pick
@@ -76,7 +76,8 @@ def generate_samples(row):
     rouge_types = ['rouge1', 'rouge2']
     single_extraction_examples = []
 
-    source_sents, source_lrs = sents_from_html(row['spacy_source_toks_packed'], convert_lower=True, extract_lr=True)
+    # source_sents, source_lrs = sents_from_html(row['spacy_source_toks'], convert_lower=True, extract_lr=True)
+    source_sents = sents_from_html(row['spacy_source_toks'], convert_lower=True, extract_lr=False)
     target_sents = sents_from_html(row['spacy_target_toks'], convert_lower=True)
     target_n = len(target_sents)
 
@@ -102,7 +103,7 @@ def generate_samples(row):
         ) and idx not in dup_idxs
     ]
     source_sents_no_stop_filt = [source_sents_no_stop[idx] for idx in keep_idxs]
-    source_lrs_filt = [source_lrs[idx] for idx in keep_idxs]
+    # source_lrs_filt = [source_lrs[idx] for idx in keep_idxs]
     source_n = len(keep_idxs)
 
     if source_n < target_n or source_n > MAX_SOURCE_SENTS:
@@ -135,12 +136,12 @@ def generate_samples(row):
 
         eligible_scores = []
         eligible_source_sents = []
-        eligible_lrs = []
+        # eligible_lrs = []
         for i in range(len(scores)):
             if i not in included_sent_idxs:
                 eligible_scores.append(scores[i])
                 eligible_source_sents.append(source_sents_no_stop_filt[i])
-                eligible_lrs.append(source_lrs_filt[i])
+                # eligible_lrs.append(source_lrs_filt[i])
 
         # Example
         example = {
@@ -148,7 +149,7 @@ def generate_samples(row):
             'account': row['account'],
             'curr_sum_sents': curr_sum_sents.copy(),
             'candidate_source_sents': eligible_source_sents,
-            'source_sents_lexranks': eligible_lrs,
+            # 'source_sents_lexranks': eligible_lrs,
             'curr_rouge': curr_rouge,
             'target_rouges': eligible_scores,
             'target_sents': target_sents,
@@ -173,7 +174,7 @@ if __name__ == '__main__':
     types = ['validation', 'train']
     for type in types:
         print('Getting records for {} set'.format(type))
-        type_df = get_records(type=type, mini=args.mini)
+        type_df = get_records(split=type, mini=args.mini)
         if len(type_df) > MAX_SUMMARIES:
             print('Shrinking from {} to {}'.format(len(type_df), MAX_SUMMARIES))
             type_df = type_df.sample(n=MAX_SUMMARIES, replace=False)
@@ -183,7 +184,7 @@ if __name__ == '__main__':
         if args.single_proc:
             single_extraction_examples = list(tqdm(map(generate_samples, type_examples), total=n))
         else:
-            single_extraction_examples = list(p_uimap(generate_samples, type_examples))
+            single_extraction_examples = list(p_uimap(generate_samples, type_examples, num_cpus=0.8))
 
         output = list(itertools.chain(*single_extraction_examples))
         out_n = len(output)

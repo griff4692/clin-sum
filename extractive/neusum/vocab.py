@@ -145,7 +145,7 @@ if __name__ == '__main__':
             pickle.dump(vocab, fd)
     else:
         records = get_records('train').to_dict('records') + get_records('validation').to_dict('records')
-        tokens = p_uimap(get_tokens, records, num_cpus=0.5)
+        tokens = p_uimap(get_tokens, records, num_cpus=0.8)
         tokens_flat = list(itertools.chain(*tokens))
         tok_cts = Counter(tokens_flat)
         vocab = Vocab()
