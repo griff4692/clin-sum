@@ -18,8 +18,7 @@ def nonzero_intersection(df, cols):
 
 if __name__ == '__main__':
     print('Loading entity labels dataframe...')
-    sampled_suffix = '_50ksample'
-    in_fn = os.path.join(out_dir, 'entity_labels{}.csv'.format(sampled_suffix))
+    in_fn = os.path.join(out_dir, 'entity', 'full_entities_aggregated.csv')
     df = pd.read_csv(in_fn)
     n = len(df)
     print('Finished loading. Now processing {} entities'.format(n))

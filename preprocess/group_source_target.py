@@ -12,7 +12,9 @@ from p_tqdm import p_imap
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
 from preprocess.utils import *
-from preprocess.section_utils import MIN_TARGET_LEN, extract_hospital_course, clean, sectionize
+from preprocess.section_utils import (
+    MIN_TARGET_LEN, extract_hospital_course, clean, sectionize, resolve_course, paragraph_toks_from_html
+)
 
 
 def stringify(x):
@@ -65,6 +67,8 @@ def generate_examples(mrn):
     notes_df = notes_df.fillna(NULL_STR)
     notes_df['account'] = notes_df['account'].apply(stringify)
 
+    seen_targets = set()
+
     examples, sources, targets = [], [], []
     for account in valid_accounts:
         account_notes = notes_df[notes_df['account'] == account]
@@ -74,6 +78,11 @@ def generate_examples(mrn):
         source_note_str = process_source(source_df.to_dict('records'), account)
         target_note_str = process_target(target_df.to_dict('records'), account)
         if len(source_note_str) > len(target_note_str) > 0:
+            raw_target = ' '.join(paragraph_toks_from_html(resolve_course(target_note_str)))
+            if raw_target in seen_targets:
+                print('Duplicate hospital course.  MRN={}. Account={}.'.format(mrn, account))
+                continue
+            seen_targets.add(raw_target)
             examples.append(
                 (mrn, account, len(source_note_str), len(target_note_str), source_note_str, target_note_str))
 
@@ -89,6 +98,6 @@ if __name__ == '__main__':
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    statuses = p_imap(generate_examples, mrns)
+    statuses = p_imap(generate_examples, mrns, num_cpus=0.75)
     update_mrn_status_df(mrn_status_df, list(statuses), mrn_valid_idxs, 'valid_example')
     duration(start_time)

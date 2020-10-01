@@ -12,10 +12,10 @@ from p_tqdm import p_uimap
 from scipy.stats import describe
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
-from constants import *
-from fragment_utils import Fragments
+from preprocess.constants import *
+from preprocess.fragment_utils import Fragments
 from preprocess.utils import *
-from section_utils import resolve_course, sent_toks_from_html
+from preprocess.section_utils import resolve_course, sent_toks_from_html
 
 DELIM = ' ||| '
 
@@ -45,8 +45,8 @@ def get_extractive_fragments(mrn):
 
     frag_dicts = defaultdict(list)
     for example in examples_df.to_dict('records'):
-        source_toks = sent_toks_from_html(example['spacy_source_toks'])
-        target_toks = sent_toks_from_html(resolve_course(example['spacy_target_toks']))
+        source_toks = sent_toks_from_html(example['spacy_source_toks'], convert_lower=True)
+        target_toks = sent_toks_from_html(example['spacy_target_toks'], convert_lower=True)
         frag_obj = frags(source_toks, target_toks)
         for k, v in frag_obj.items():
             frag_dicts[k].append(v)

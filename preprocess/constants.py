@@ -22,6 +22,8 @@ MAX_HEADER_LEN = 50
 MAX_SYSTEMS_COURSE_HEADER_LEN = 15
 MIN_TARGET_LEN = 25  # min number of allowable characters in body of hospital course section
 MIN_SOURCE_LEN = 100
+MAX_TARGET_TOK_CT = 500
+MAX_SOURCE_TOK_CT = 20000
 
 HEADER_SEARCH_REGEX = r'(?:^|\s{4,}|\n)[\d.#]{0,4}\s*([A-Z][A-z0-9/ ]+[A-z]:|[A-Z0-9/ ]+\n)'
 SEP_REGEX = r'\.\s|\n{2,}|^\s{0,}\d{1,2}\s{0,}[-).]\s{1,}'

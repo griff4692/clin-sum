@@ -42,6 +42,32 @@ whitelist_semgroup = {
 }
 
 
+def generate_counts(account):
+    outputs = []
+
+    account_df = ent_df[ent_df['account'] == account]
+    mrn = account_df['mrn'].iloc[0]
+    source_df = account_df[account_df['is_source']]
+    target_df = account_df[account_df['is_target']]
+
+    source_cui_counts = source_df['cui'].value_counts().to_dict()
+    target_cui_counts = target_df['cui'].value_counts().to_dict()
+
+    all_cuis = list(set(list(source_cui_counts.keys()) + list(target_cui_counts.keys())))
+    for cui in all_cuis:
+        source_count = source_cui_counts.get(cui, 0)
+        target_count = target_cui_counts.get(cui, 0)
+        outputs.append({
+            'mrn': mrn,
+            'account': account,
+            'cui': cui,
+            'source_count': source_count,
+            'target_count': target_count,
+        })
+
+    return outputs
+
+
 def _process(mrn, account, entity, is_t, sent_idx):
     is_core = entity['cui'] in core_cui_set
     if entity['tui'] is None or entity['tui'] == 'None':
@@ -107,30 +133,20 @@ def extract_entities(record):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to extract and UMLS-link entities for all examples.')
     parser.add_argument('-mini', default=False, action='store_true')
+    parser.add_argument('-aggregate', default=False, action='store_true')
     parser.add_argument('-collect', default=False, action='store_true')
+    parser.add_argument('-run', default=False, action='store_true')
 
     args = parser.parse_args()
     base_dir = os.path.join(out_dir, 'entity')
-    entities_dir = os.path.join(base_dir, 'entities_medcat')
+    entities_dir = os.path.join(base_dir, 'entities')
 
-    if args.collect:
-        ent_fns = list(map(lambda x: os.path.join(entities_dir, x), os.listdir(entities_dir)))
-        print('Collecting {} different entity files.'.format(len(ent_fns)))
-        ent_df_arr = []
-        for i in tqdm(range(len(ent_fns))):
-            try:
-                ent_df_arr.append(pd.read_csv(ent_fns[i]))
-            except pd.errors.EmptyDataError:
-                print('No entities for {}'.format(ent_fns[i]))
-        ent_df = pd.concat(ent_df_arr)
-        out_ent_fn = os.path.join(base_dir, 'full_entities.csv')
-        print('Saving {} entities to {}'.format(len(ent_df), out_ent_fn))
-        ent_df.to_csv(out_ent_fn, index=False)
-    else:
+    if args.run:
         if not os.path.exists(base_dir):
             print('Creating {} dir'.format(base_dir))
             os.mkdir(base_dir)
         if not os.path.exists(entities_dir):
+            print('Creating {} dir'.format(entities_dir))
             os.mkdir(entities_dir)
 
         mini_str = '_small' if args.mini else ''
@@ -170,5 +186,36 @@ if __name__ == '__main__':
         splits = ['validation', 'train']
         examples = get_records(split=splits, mini=args.mini).to_dict('records')
 
-        num_ents = np.array(list(p_uimap(extract_entities, examples, num_cpus=0.75)))
+        num_ents = np.array(list(p_uimap(extract_entities, examples, num_cpus=0.8)))
         print('An average of {} entities extracted per visit'.format(num_ents.mean()))
+
+    if args.collect:
+        ent_fns = list(map(lambda x: os.path.join(entities_dir, x), os.listdir(entities_dir)))
+        print('Collecting {} different entity files.'.format(len(ent_fns)))
+        ent_df_arr = []
+        for i in tqdm(range(len(ent_fns))):
+            try:
+                ent_df_arr.append(pd.read_csv(ent_fns[i]))
+            except pd.errors.EmptyDataError:
+                print('No entities for {}'.format(ent_fns[i]))
+        ent_df = pd.concat(ent_df_arr)
+        out_ent_fn = os.path.join(base_dir, 'full_entities.csv')
+        print('Saving {} entities to {}'.format(len(ent_df), out_ent_fn))
+        ent_df.to_csv(out_ent_fn, index=False)
+    if args.aggregate:
+        in_ent_fn = os.path.join(base_dir, 'full_entities.csv')
+        ent_df = pd.read_csv(in_ent_fn)
+        accounts = ent_df['account'].unique().tolist()
+        num_mrns = len(ent_df['mrn'].unique())
+        print('Collected {} entities for {} unique visits across {} patients'.format(
+            len(ent_df), len(accounts), num_mrns))
+        outputs = list(p_uimap(generate_counts, accounts, num_cpus=0.8))
+        outputs_flat = list(itertools.chain(*outputs))
+
+        output_df = pd.DataFrame(outputs_flat)
+        aggregated_out_fn = os.path.join(out_dir, 'entity', 'full_entities_aggregated.csv')
+        n = len(output_df)
+        output_df.sort_values(by=['source_count', 'target_count'], ascending=False, inplace=True)
+
+        print('Saving {} CUI examples to {}'.format(n, aggregated_out_fn))
+        output_df.to_csv(aggregated_out_fn, index=False)

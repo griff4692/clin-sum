@@ -14,6 +14,7 @@ import spacy
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
+from preprocess.section_utils import resolve_course
 from preprocess.utils import *
 
 HTML_REGEX = r'(<[a-z][^>]+>|<\/?[a-z]>)'
@@ -100,13 +101,18 @@ def tokenize_mrn(mrn):
 
     spacy_source_toks, spacy_target_toks = [], []
     spacy_source_n, spacy_target_n = [], []
+    is_too_big = []
+    too_big_ct = 0
     for row in examples_df.to_dict('records'):
         ssn, ssl, sst = tokenize_example(row['source_str'])
-        stn, tsl, stt = tokenize_example(row['target_str'])
-
+        stn, tsl, stt = tokenize_example(resolve_course(row['target_str']))
         source_sent_lens += ssl
         target_sent_lens += tsl
 
+        too_big = ssn >= MAX_SOURCE_TOK_CT or stn >= MAX_TARGET_TOK_CT
+        is_too_big.append(too_big)
+        if too_big:
+            too_big_ct += 1
         spacy_source_toks.append(sst)
         spacy_target_toks.append(stt)
         spacy_source_n.append(ssn)
@@ -116,8 +122,11 @@ def tokenize_mrn(mrn):
     examples_df['spacy_target_toks'] = spacy_target_toks
     examples_df['spacy_source_tok_ct'] = spacy_source_n
     examples_df['spacy_target_tok_ct'] = spacy_target_n
+    examples_df['is_too_big'] = is_too_big
+    # Generally, this means we have a repeated hospital course for some reason
+    examples_df.drop_duplicates(subset=['spacy_target_tok_ct'], inplace=True)
     examples_df.to_csv(examples_fn, index=False)
-    return len(examples_df), source_sent_lens, target_sent_lens
+    return len(examples_df), source_sent_lens, target_sent_lens, too_big_ct
 
 
 if __name__ == '__main__':
@@ -129,11 +138,13 @@ if __name__ == '__main__':
     _, _, mrns = get_mrn_status_df('valid_example')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
-    outputs = list(p_uimap(tokenize_mrn, mrns))
+    outputs = list(p_uimap(tokenize_mrn, mrns, num_cpus=0.8))
     examples = [x[0] for x in outputs]
     source_sent_lens = np.array(list(itertools.chain(*[x[1] for x in outputs])))
     target_sent_lens = np.array(list(itertools.chain(*[x[2] for x in outputs])))
-    print('Tokenized {} examples.'.format(sum(examples)))
+    num_examples = sum(examples)
+    too_big_ct = sum([x[3] for x in outputs])
+    print('Tokenized {} examples. {} were flagged as too big'.format(num_examples, too_big_ct))
 
     print('Average source sentence length: {}'.format(source_sent_lens.mean()))
     print('Average target sentence length: {}'.format(target_sent_lens.mean()))
