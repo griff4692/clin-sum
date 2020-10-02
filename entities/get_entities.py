@@ -26,7 +26,7 @@ from p_tqdm import p_uimap
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
-from preprocess.section_utils import resolve_course, paragraph_from_html
+from preprocess.section_utils import paragraph_from_html
 from preprocess.tokenize_mrns import sent_segment
 from preprocess.utils import *
 

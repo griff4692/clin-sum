@@ -27,7 +27,7 @@ def top_k_sents(packed_str, k=12, preserve_order=True):
 
 def gen_summaries(record):
     top_sents = top_k_sents(record['spacy_source_toks_packed'])
-    target_toks = sent_toks_from_html(resolve_course(record['spacy_target_toks']), convert_lower=False)
+    target_toks = sent_toks_from_html(record['spacy_target_toks'], convert_lower=False)
     summary = ' '.join(top_sents)
     reference = ' '.join(target_toks)
     ref_len = len(target_toks)
@@ -56,7 +56,7 @@ if __name__ == '__main__':
         np.random.seed(1992)
         validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
 
-    outputs = list(filter(None, p_uimap(gen_summaries, validation_records)))
+    outputs = list(filter(None, p_uimap(gen_summaries, validation_records, num_cpus=0.8)))
     out_fn = os.path.join(out_dir, 'predictions', 'lr_validation.csv')
     output_df = pd.DataFrame(outputs)
     output_df.to_csv(out_fn, index=False)
