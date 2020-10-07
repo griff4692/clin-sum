@@ -76,11 +76,11 @@ def generate_samples(row):
     rouge_types = ['rouge1', 'rouge2']
     single_extraction_examples = []
 
-    source_sents, source_lrs = sents_from_html(row['spacy_source_toks_packed'], convert_lower=True, extract_lr=True)
+    source_sents = sents_from_html(row['spacy_source_toks'], convert_lower=True)
     target_sents = sents_from_html(row['spacy_target_toks'], convert_lower=True)
     target_n = len(target_sents)
 
-    if target_n > MAX_TARGET_SENTS:
+    if not eval_mode and target_n > MAX_TARGET_SENTS:
         return []
 
     target = ' '.join(target_sents)
@@ -96,22 +96,24 @@ def generate_samples(row):
         else:
             seen.add(source_sent)
     # remove duplicate sentences and 1-2 word sentences (too many of them) and most are not necessary for BHC
+    should_keep_all = eval_mode or type == 'test'
     keep_idxs = [
         idx for idx, s in enumerate(source_sents_no_stop) if extraction_is_keep(
-            s, target_toks, no_match_keep_prob=compute_no_match_keep_prob(len(source_sents), type == 'test')
+            s, target_toks, no_match_keep_prob=compute_no_match_keep_prob(len(source_sents), should_keep_all)
         ) and idx not in dup_idxs
     ]
     source_sents_no_stop_filt = [source_sents_no_stop[idx] for idx in keep_idxs]
-    source_lrs_filt = [source_lrs[idx] for idx in keep_idxs]
     source_n = len(keep_idxs)
 
-    if source_n < target_n or source_n > MAX_SOURCE_SENTS:
+    if not should_keep_all and (source_n < target_n or source_n > MAX_SOURCE_SENTS):
         return []
 
     curr_sum_sents = []
     curr_rouge = 0.0
     included_sent_idxs = set()
     max_sum_n = min(source_n, len(target_sents), MAX_SUM_SENTS)
+    if eval_mode:
+        max_sum_n = 1
     references = [target_no_stop for _ in range(source_n)]
 
     for gen_idx in range(max_sum_n):
@@ -135,12 +137,10 @@ def generate_samples(row):
 
         eligible_scores = []
         eligible_source_sents = []
-        eligible_lrs = []
         for i in range(len(scores)):
             if i not in included_sent_idxs:
                 eligible_scores.append(scores[i])
                 eligible_source_sents.append(source_sents_no_stop_filt[i])
-                eligible_lrs.append(source_lrs_filt[i])
 
         # Example
         example = {
@@ -148,7 +148,6 @@ def generate_samples(row):
             'account': row['account'],
             'curr_sum_sents': curr_sum_sents.copy(),
             'candidate_source_sents': eligible_source_sents,
-            'source_sents_lexranks': eligible_lrs,
             'curr_rouge': curr_rouge,
             'target_rouges': eligible_scores,
             'target_sents': target_sents,
@@ -166,15 +165,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to generate greedy labels for single-step extraction task.')
     parser.add_argument('-mini', default=False, action='store_true')
     parser.add_argument('-single_proc', default=False, action='store_true')
+    parser.add_argument('-eval_mode', default=False, action='store_true')
 
     args = parser.parse_args()
 
+    eval_mode = args.eval_mode
     mini_str = '_mini' if args.mini else ''
+    eval_str = '_eval' if args.eval_mode else ''
     types = ['validation', 'train']
     for type in types:
         print('Getting records for {} set'.format(type))
-        type_df = get_records(type=type, mini=args.mini)
-        if len(type_df) > MAX_SUMMARIES:
+        type_df = get_records(split=type, mini=args.mini)
+        if not eval_mode and len(type_df) > MAX_SUMMARIES:
             print('Shrinking from {} to {}'.format(len(type_df), MAX_SUMMARIES))
             type_df = type_df.sample(n=MAX_SUMMARIES, replace=False)
         type_examples = type_df.to_dict('records')
@@ -187,7 +189,8 @@ if __name__ == '__main__':
 
         output = list(itertools.chain(*single_extraction_examples))
         out_n = len(output)
-        out_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}.json'.format(type, mini_str))
-        print('Saving {} labeled single step extraction samples to {}'.format(out_n, out_fn))
+        account_n = len(set([x['account'] for x in output]))
+        out_fn = os.path.join(out_dir, 'single_extraction_labels_{}{}{}.json'.format(type, eval_str, mini_str))
+        print('Saving {} labeled single step extraction samples for {} visits to {}'.format(out_n, account_n, out_fn))
         with open(out_fn, 'w') as fd:
             json.dump(output, fd)
