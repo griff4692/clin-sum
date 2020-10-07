@@ -143,8 +143,8 @@ if __name__ == '__main__':
     df['prediction'] = df['prediction'].fillna(value='')
 
     print('Loaded {} predictions.'.format(df.shape[0]))
-    predictions = df['prediction'].tolist()
-    references = df['reference'].tolist()
+    predictions = list(map(prepare_str_for_rouge, df['prediction'].tolist()))
+    references = list(map(prepare_str_for_rouge, df['reference'].tolist()))
     rouge_types = ['rouge1', 'rouge2']
     if args.rougeL:  # this is very slow
         rouge_types.append('rougeL')

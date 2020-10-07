@@ -162,10 +162,11 @@ class NeuSum(pl.LightningModule):
         sum_len = 0
         source_ids_flat_pad, sum_ids_flat_pad, target_dist, counts, masks, metadata = batch
         gold_sent_order = list(np.argsort(tens_to_np(-target_dist.squeeze())))
+        num_sents = len(metadata['source_sents'])
         mrn = metadata['mrn'][0]
         rel_ranks = []
         account = metadata['account'][0]
-        for _ in range(MAX_GEN_SUM_SENTS):
+        for _ in range(min(num_sents, MAX_GEN_SUM_SENTS)):
             i0 = source_ids_flat_pad.to(self.device_name)
             i1 = sum_ids_flat_pad.to(self.device_name)
             i2 = {}
