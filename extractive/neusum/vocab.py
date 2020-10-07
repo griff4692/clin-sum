@@ -110,8 +110,7 @@ class Vocab:
 
 
 def get_tokens(row):
-    source_k = 'spacy_source_toks_packed' if 'spacy_source_toks_packed' in row else 'spacy_source_toks'
-    source_toks = sent_toks_from_html(row[source_k], convert_lower=True)
+    source_toks = sent_toks_from_html(row['spacy_source_toks'], convert_lower=True)
     target_toks = sent_toks_from_html(row['spacy_target_toks'], convert_lower=True)
     return source_toks + target_toks
 
@@ -144,7 +143,7 @@ if __name__ == '__main__':
         with open(out_fn, 'wb') as fd:
             pickle.dump(vocab, fd)
     else:
-        records = get_records('train').to_dict('records') + get_records('validation').to_dict('records')
+        records = get_records(split=['train', 'validation']).to_dict('records')
         tokens = p_uimap(get_tokens, records, num_cpus=0.8)
         tokens_flat = list(itertools.chain(*tokens))
         tok_cts = Counter(tokens_flat)

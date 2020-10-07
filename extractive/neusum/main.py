@@ -273,7 +273,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    num_workers = int(0.5 * multiprocessing.cpu_count())
+    num_workers = int(0.75 * multiprocessing.cpu_count())
     gpus = torch.cuda.device_count() if torch.cuda.is_available() and not args.cpu else None
     if gpus is not None and args.batch_size % gpus > 0:
         raise Exception('Target batch size={} must be a multiple of number of GPUs={}'.format(args.batch_size, gpus))
@@ -345,7 +345,7 @@ if __name__ == '__main__':
             gpus=gpus,
             distributed_backend=distributed_backend,
             precision=precision,
-            val_check_interval=0.5,
+            val_check_interval=0.2,
             deterministic=True,
             accumulate_grad_batches=1,
             auto_select_gpus=True,
