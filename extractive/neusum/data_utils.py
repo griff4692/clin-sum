@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
+from evaluations.rouge import remove_stopwords
 from extractive.neusum.vocab import Vocab
 from preprocess.constants import out_dir
 
@@ -144,29 +145,18 @@ class SingleExtractionDataset(Dataset):
         :return: dictionary representing model inputs for this single example
         """
         example = self.examples[item]
-        source_sents = example['candidate_source_sents']
+        source_sents = [remove_stopwords(s) for s in example['candidate_source_sents']]
         rouges = example['target_rouges']
-        seen = set()
-        source_sents_dedup = []
-        rouges_dedup = []
-        for rouge, source_sent in zip(rouges, source_sents):
-            if source_sent in seen:
-                continue
-            else:
-                source_sents_dedup.append(source_sent)
-                rouges_dedup.append(rouge)
-                seen.add(source_sent)
-
-        source_sents_dedup_trunc = [truncate(x, MAX_SENT_LEN) for x in source_sents_dedup]
+        source_sents_trunc = [truncate(x, MAX_SENT_LEN) for x in source_sents]
 
         if len(example['curr_sum_sents']) == 0:
             curr_sum_sents = [['<s>']]
         else:
-            curr_sum_sents = [truncate(x, MAX_SENT_LEN) for x in example['curr_sum_sents']]
+            curr_sum_sents = [remove_stopwords(truncate(x, MAX_SENT_LEN)) for x in example['curr_sum_sents']]
 
-        rel_rouges = np.array(rouges_dedup) - example['curr_rouge']
+        rel_rouges = np.array(rouges) - example['curr_rouge']
         curr_sum_sents = curr_sum_sents[:min(len(curr_sum_sents), MAX_CURR_SUM_SENTS)]
-        n = len(source_sents_dedup_trunc)
+        n = len(source_sents_trunc)
         if n > MAX_SOURCE_SENTS and self.trunc:
             np.random.seed(1992)
             argmax_idx = int(np.argmax(rel_rouges))
@@ -175,12 +165,12 @@ class SingleExtractionDataset(Dataset):
             sample_idxs = np.random.choice(range(n), size=MAX_SOURCE_SENTS - 1, p=p, replace=False)
             sample_idxs = list(sorted([argmax_idx] + list(sample_idxs)))
             rel_rouges = np.array([rel_rouges[idx] for idx in sample_idxs])
-            source_sents_dedup_trunc = [source_sents_dedup_trunc[idx] for idx in sample_idxs]
-            source_sents_dedup = [source_sents_dedup[idx] for idx in sample_idxs]
+            source_sents_trunc = [source_sents_trunc[idx] for idx in sample_idxs]
+            source_sents = [source_sents[idx] for idx in sample_idxs]
 
         target_dist = softmax(min_max_norm(rel_rouges), temp=self.label_temp)
         sum_ids = list(map(self.to_ids, curr_sum_sents))
-        source_ids = list(map(self.to_ids, source_sents_dedup_trunc))
+        source_ids = list(map(self.to_ids, source_sents_trunc))
 
         return {
             'mrn': example['mrn'],
@@ -189,7 +179,7 @@ class SingleExtractionDataset(Dataset):
             'source_ids': source_ids,
             'target_dist': target_dist,
             'rel_rouges': rel_rouges,
-            'source_sents': source_sents_dedup,
+            'source_sents': source_sents,
             'target_sents': example['target_sents']
         }
 

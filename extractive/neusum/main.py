@@ -24,8 +24,8 @@ from extractive.neusum.vocab import Vocab
 from preprocess.constants import out_dir
 from utils import tens_to_np
 
-MAX_GEN_SUM_SENTS = 100
-MAX_GEN_SUM_TOK_CT = 200  # 650
+MAX_GEN_SUM_SENTS = 25
+MAX_GEN_SUM_TOK_CT = 165
 
 
 class NeuSum(pl.LightningModule):
@@ -162,7 +162,7 @@ class NeuSum(pl.LightningModule):
         sum_len = 0
         source_ids_flat_pad, sum_ids_flat_pad, target_dist, counts, masks, metadata = batch
         gold_sent_order = list(np.argsort(tens_to_np(-target_dist.squeeze())))
-        num_sents = len(metadata['source_sents'])
+        num_sents = len(metadata['source_sents'][0])
         mrn = metadata['mrn'][0]
         rel_ranks = []
         account = metadata['account'][0]
@@ -185,7 +185,6 @@ class NeuSum(pl.LightningModule):
             rel_ranks.append(gold_sent_order.index(max_idx))
             sent_sum_len = counts['source_sent_lens_flat'][max_idx]
             sum_len += sent_sum_len
-
             if sum_len > MAX_GEN_SUM_TOK_CT:
                 break
 

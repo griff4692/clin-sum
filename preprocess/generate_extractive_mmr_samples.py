@@ -1,3 +1,4 @@
+from collections import defaultdict
 import itertools
 import json
 import os
@@ -75,13 +76,16 @@ def generate_samples(row):
     """
     rouge_types = ['rouge1', 'rouge2']
     single_extraction_examples = []
+    rouge_diffs = defaultdict(float)
+    rouge_gains = defaultdict(float)
+    rouge_fulls = defaultdict(float)
 
     source_sents = sents_from_html(row['spacy_source_toks'], convert_lower=True)
     target_sents = sents_from_html(row['spacy_target_toks'], convert_lower=True)
     target_n = len(target_sents)
 
     if not eval_mode and target_n > MAX_TARGET_SENTS:
-        return []
+        return [], rouge_diffs, rouge_gains, rouge_fulls
 
     target = ' '.join(target_sents)
     target_no_stop = prepare_str_for_rouge(target)
@@ -103,10 +107,11 @@ def generate_samples(row):
         ) and idx not in dup_idxs
     ]
     source_sents_no_stop_filt = [source_sents_no_stop[idx] for idx in keep_idxs]
+    source_sents_filt = [source_sents[idx] for idx in keep_idxs]
     source_n = len(keep_idxs)
 
     if not should_keep_all and (source_n < target_n or source_n > MAX_SOURCE_SENTS):
-        return []
+        return [], rouge_diffs, rouge_gains, rouge_fulls
 
     curr_sum_sents = []
     curr_rouge = 0.0
@@ -117,7 +122,7 @@ def generate_samples(row):
     references = [target_no_stop for _ in range(source_n)]
 
     for gen_idx in range(max_sum_n):
-        curr_sum = ' '.join(curr_sum_sents).strip() + ' '
+        curr_sum = prepare_str_for_rouge(' '.join(curr_sum_sents).strip() + ' ')
         predictions = [(curr_sum + s).strip() for s in source_sents_no_stop_filt]
         outputs = compute(predictions=predictions, references=references, rouge_types=rouge_types, use_aggregator=False)
         scores = np.array(
@@ -132,6 +137,14 @@ def generate_samples(row):
         min_score = scores_pos_mask.min()
         max_differential = max_score - min_score
         max_gain = max_score - curr_rouge
+
+        valid_scores = []
+        for score in scores:
+            if score > -1:
+                valid_scores.append(score)
+        rouge_diffs[gen_idx] = max_differential
+        rouge_gains[gen_idx] = max_score - np.mean(valid_scores)
+        rouge_fulls[gen_idx] = max_score
         if max_gain < MIN_ROUGE_IMPROVEMENT or max_differential < MIN_ROUGE_DIFFERENTIAL:
             break
 
@@ -140,11 +153,11 @@ def generate_samples(row):
         for i in range(len(scores)):
             if i not in included_sent_idxs:
                 eligible_scores.append(scores[i])
-                eligible_source_sents.append(source_sents_no_stop_filt[i])
+                eligible_source_sents.append(source_sents_filt[i])
 
         # Example
         example = {
-            'mrn': row['account'],
+            'mrn': row['mrn'],
             'account': row['account'],
             'curr_sum_sents': curr_sum_sents.copy(),
             'candidate_source_sents': eligible_source_sents,
@@ -155,10 +168,10 @@ def generate_samples(row):
 
         single_extraction_examples.append(example)
         curr_rouge = max_score
-        curr_sum_sents.append(source_sents_no_stop_filt[max_idx])
+        curr_sum_sents.append(source_sents_filt[max_idx])
         included_sent_idxs.add(max_idx)
     assert len(curr_sum_sents) == len(set(curr_sum_sents))
-    return single_extraction_examples
+    return single_extraction_examples, rouge_diffs, rouge_gains, rouge_fulls
 
 
 if __name__ == '__main__':
@@ -183,10 +196,14 @@ if __name__ == '__main__':
         n = len(type_examples)
         print('Processing {} examples for {} set'.format(n, type))
         if args.single_proc:
-            single_extraction_examples = list(tqdm(map(generate_samples, type_examples), total=n))
+            x = list(tqdm(map(generate_samples, type_examples), total=n))
         else:
-            single_extraction_examples = list(p_uimap(generate_samples, type_examples, num_cpus=0.8))
+            x = list(p_uimap(generate_samples, type_examples,  num_cpus=0.8))
 
+        single_extraction_examples = [a[0] for a in x]
+        rouge_diffs = [a[1] for a in x]
+        rouge_gains = [a[2] for a in x]
+        rouge_fulls = [a[3] for a in x]
         output = list(itertools.chain(*single_extraction_examples))
         out_n = len(output)
         account_n = len(set([x['account'] for x in output]))
@@ -194,3 +211,30 @@ if __name__ == '__main__':
         print('Saving {} labeled single step extraction samples for {} visits to {}'.format(out_n, account_n, out_fn))
         with open(out_fn, 'w') as fd:
             json.dump(output, fd)
+
+        all_rouge_diffs = defaultdict(list)
+        all_rouge_gains = defaultdict(list)
+        all_rouge_fulls = defaultdict(list)
+
+        for i in range(len(rouge_diffs)):
+            for k in rouge_diffs[i]:
+                all_rouge_diffs[k].append(rouge_diffs[i][k])
+                all_rouge_gains[k].append(rouge_gains[i][k])
+                all_rouge_fulls[k].append(rouge_fulls[i][k])
+
+        output_df = []
+        for n in all_rouge_diffs:
+            v = all_rouge_diffs[n]
+            row = {
+                'n': n,
+                'avg_diff': np.mean(all_rouge_diffs[n]),
+                'avg_gain': np.mean(all_rouge_gains[n]),
+                'avg_fulls': np.mean(all_rouge_fulls[n]),
+                'support': len(all_rouge_diffs[n])
+            }
+            output_df.append(row)
+
+        output_df = pd.DataFrame(output_df)
+        out_fn = 'rouge_stats_{}{}{}.csv'.format(type, eval_str, mini_str)
+        print('Saving ROUGE stats by extractive step to {}'.format(out_fn))
+        output_df.to_csv(out_fn, index=False)
