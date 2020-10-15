@@ -25,7 +25,7 @@ from preprocess.constants import out_dir
 from utils import tens_to_np
 
 MAX_GEN_SUM_SENTS = 100
-MAX_GEN_SUM_TOK_CT = 1024
+MAX_GEN_SUM_TOK_CT = 200  # 650
 
 
 class NeuSum(pl.LightningModule):
@@ -50,7 +50,7 @@ class NeuSum(pl.LightningModule):
         )
 
         self.dropout = nn.Dropout(p=0.25)
-        self.sum_aware = self.args.max_curr_sum_sents > 0
+        self.sum_aware = True # TODO - remember why I did this! self.args.max_curr_sum_sents > 0
         s_dim = args.hidden_dim * 8 if self.sum_aware else args.hidden_dim * 4
         self.scorer = nn.Sequential(
             self.dropout,
@@ -162,10 +162,11 @@ class NeuSum(pl.LightningModule):
         sum_len = 0
         source_ids_flat_pad, sum_ids_flat_pad, target_dist, counts, masks, metadata = batch
         gold_sent_order = list(np.argsort(tens_to_np(-target_dist.squeeze())))
+        num_sents = len(metadata['source_sents'])
         mrn = metadata['mrn'][0]
         rel_ranks = []
         account = metadata['account'][0]
-        for _ in range(MAX_GEN_SUM_SENTS):
+        for _ in range(min(num_sents, MAX_GEN_SUM_SENTS)):
             i0 = source_ids_flat_pad.to(self.device_name)
             i1 = sum_ids_flat_pad.to(self.device_name)
             i2 = {}
@@ -235,7 +236,7 @@ class NeuSum(pl.LightningModule):
             'reference': references
         }
         output_df = pd.DataFrame(output_df)
-        exp_str = 'neusum_{}'.format(self.args.experiment)
+        exp_str = 'neusum_{}_{}'.format(self.args.experiment, str(MAX_GEN_SUM_TOK_CT))
         out_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(exp_str))
         print('To evaluate, run: cd ../../evaluations && python rouge.py --experiment {}'.format(exp_str))
 
@@ -363,7 +364,9 @@ if __name__ == '__main__':
         assert len(checkpoint_fns) == 1
         model = NeuSum.load_from_checkpoint(checkpoint_fns[0], args=args, vocab=vocab)
         test_dataset = SingleExtractionDataset(
-            model.vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False, max_n=args.max_eval)
+            model.vocab, type='validation', mini=args.mini, max_curr_sum_sents=0, trunc=False, max_n=args.max_eval,
+            eval=True
+        )
         test_loader = DataLoader(
             test_dataset, batch_size=1, shuffle=False, num_workers=num_workers, collate_fn=test_collate_fn)
         trainer = pl.Trainer(

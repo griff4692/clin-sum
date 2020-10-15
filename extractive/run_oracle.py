@@ -24,7 +24,7 @@ def stringify_list(a):
 
 
 def greedy_rel_rouge_recall(source_sents, target_sents):
-    return greedy_rel_rouge(source_sents, target_sents, target_tok_ct=1024)
+    return greedy_rel_rouge(source_sents, target_sents, target_tok_ct=recall_target_n)
 
 
 def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=None):
@@ -47,8 +47,34 @@ def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=None):
     }
 
 
+def random_recall(source_sents, target_sents):
+    return random(source_sents, target_sents, target_tok_ct=650)
+
+
+def random(source_sents, target_sents, target_tok_ct=100):
+    source_sents_dedup = list(dict.fromkeys(source_sents))
+    sent_order = np.arange(len(source_sents_dedup))
+    np.random.shuffle(sent_order)
+    summary_sents = []
+    sum_len = 0
+    for sent_idx in sent_order:
+        sum_len += len(source_sents_dedup[sent_idx].split(' '))
+        if sum_len > target_tok_ct:
+            break
+        summary_sents.append(source_sents_dedup[sent_idx])
+
+    n = len(summary_sents)
+    summary = ' <s> '.join(summary_sents).strip()
+    sum_len = len(summary.split(' ')) - n  # subtract pseudo sentence tokens
+
+    return {
+        'prediction': summary,
+        'sum_len': sum_len
+    }
+
+
 def top_k_rouge_recall(source_sents, target_sents):
-    return top_k_rouge(source_sents, target_sents, target_tok_ct=1024)
+    return top_k_rouge(source_sents, target_sents, target_tok_ct=recall_target_n)
 
 
 def top_k_rouge(source_sents, target_sents, target_tok_ct=100):
@@ -123,11 +149,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to generate oracle predictions')
     parser.add_argument('--max_n', default=-1, type=int)
     parser.add_argument('--strategy', default='sent_align', choices=
-    ['sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall',])
+    ['sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall', 'random_recall'])
     parser.add_argument('--rouge_types', default='rouge1,rouge2')
+    parser.add_argument('--recall_target_n', type=int, default=650)
 
     args = parser.parse_args()
     rouge_types = args.rouge_types.split(',')
+    recall_target_n = args.recall_target_n
 
     mini = 0 <= args.max_n <= 100
     validation_df = get_records(split='validation', mini=mini)
@@ -143,6 +171,8 @@ if __name__ == '__main__':
         summarizer = top_k_rouge
     elif args.strategy == 'top_k_recall':
         summarizer = top_k_rouge_recall
+    elif args.strategy == 'random_recall':
+        summarizer = random_recall
 
     if args.max_n > 0:
         np.random.seed(1992)
@@ -151,6 +181,8 @@ if __name__ == '__main__':
     outputs = list(filter(None, p_uimap(gen_summaries, validation_records, num_cpus=0.8)))
     n = len(outputs)
     exp_str = 'oracle_{}'.format(args.strategy)
+    if 'recall' in args.strategy:
+        exp_str += '_{}'.format(args.recall_target_n)
     out_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(exp_str))
     print('Saving {} predictions to {}'.format(n, out_fn))
     print('To evaluate, run: cd ../evaluations && python rouge.py --experiment {}'.format(exp_str))
