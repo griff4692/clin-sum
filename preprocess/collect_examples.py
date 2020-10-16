@@ -25,21 +25,6 @@ def collect_examples(mrn):
 
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser('Script to generate and visualize (valid) examples.')
-    # args = parser.parse_args()
-    #
-    # _, _, mrns = get_mrn_status_df('valid_example')
-    # n = len(mrns)
-    #
-    # examples = list(p_uimap(collect_examples, mrns))
-    # examples = [e for e in examples if examples is not None]
-    # print('Concatenating all {} dataframes'.format(len(examples)))
-    # df = pd.concat(examples)
-    #
-    # out_fn = os.path.join(out_dir, 'full_examples.csv')
-    # print('Now saving {} examples from {} mrns to {}'.format(len(df), n, out_fn))
-    # df.to_csv(out_fn, index=False)
-
     df = pd.read_csv(os.path.join(out_dir, 'full_examples.csv'))
     df = df[((df['split'] == 'train') | (df['split'] == 'validation'))]
 

@@ -152,14 +152,19 @@ if __name__ == '__main__':
     ['sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall', 'random_recall'])
     parser.add_argument('--rouge_types', default='rouge1,rouge2')
     parser.add_argument('--recall_target_n', type=int, default=650)
+    parser.add_argument('--custom_path', default=None)
+    parser.add_argument('--custom_path_alias', default=None)
 
     args = parser.parse_args()
     rouge_types = args.rouge_types.split(',')
     recall_target_n = args.recall_target_n
 
-    mini = 0 <= args.max_n <= 100
-    validation_df = get_records(split='validation', mini=mini)
-    validation_records = validation_df.to_dict('records')
+    if args.custom_path is not None:
+        records = pd.read_csv(os.path.join(out_dir, args.custom_path)).to_dict('records')
+    else:
+        mini = 0 <= args.max_n <= 100
+        validation_df = get_records(split='validation', mini=mini)
+        records = validation_df.to_dict('records')
 
     if args.strategy == 'sent_align':
         summarizer = sent_align
@@ -176,14 +181,15 @@ if __name__ == '__main__':
 
     if args.max_n > 0:
         np.random.seed(1992)
-        validation_records = np.random.choice(validation_records, size=args.max_n, replace=False)
+        records = np.random.choice(records, size=args.max_n, replace=False)
 
-    outputs = list(filter(None, p_uimap(gen_summaries, validation_records, num_cpus=0.8)))
+    outputs = list(filter(None, p_uimap(gen_summaries, records, num_cpus=0.8)))
     n = len(outputs)
     exp_str = 'oracle_{}'.format(args.strategy)
+    alias_str = args.custom_path_alias or 'validation'
     if 'recall' in args.strategy:
         exp_str += '_{}'.format(args.recall_target_n)
-    out_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(exp_str))
+    out_fn = os.path.join(out_dir, 'predictions', '{}_{}.csv'.format(exp_str, alias_str))
     print('Saving {} predictions to {}'.format(n, out_fn))
     print('To evaluate, run: cd ../evaluations && python rouge.py --experiment {}'.format(exp_str))
     output_df = pd.DataFrame(outputs)
