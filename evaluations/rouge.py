@@ -137,7 +137,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    in_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(args.experiment))
+    in_fn = os.path.join(out_dir, 'predictions', '{}.csv'.format(args.experiment))
+    if not os.path.exists(in_fn):
+        in_fn = os.path.join(out_dir, 'predictions', '{}_validation.csv'.format(args.experiment))
     print('Loading predictions from {}...'.format(in_fn))
     df = pd.read_csv(in_fn)
     df['prediction'] = df['prediction'].fillna(value='')

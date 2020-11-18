@@ -79,6 +79,9 @@ if __name__ == '__main__':
     full_labels = []
     flat_target_toks = []
 
+    non_ent_tok_cts = 0
+    ent_tok_cts = 0
+
     for example in tqdm(examples):
         text = example['srl_packed_target']
         mrn = example['mrn']
@@ -94,6 +97,7 @@ if __name__ == '__main__':
         tokens = []
         fixed_labels = {}
         curr_state = None
+        prev_state = None
         curr_cui = None
         for i, str in enumerate(split_text):
             str = str.strip()
@@ -103,21 +107,27 @@ if __name__ == '__main__':
             is_tag = is_tag_full[i]
             if is_tag:
                 if str[1] == '/':
+                    if curr_state == 'u' or curr_state == 'f':  # these are nested
+                        curr_state = prev_state
                     continue
                 else:
+                    prev_state = curr_state
                     curr_state = str[1]
                     assert curr_state in {'p', 'c', 'd', 'e', 'u', 'f', 'h'}
                     if curr_state == 'u':
                         curr_cui = re.findall(r'cui=(\w+) ', str)[0]
             else:
                 if curr_state in {'p', 'f'}:
-                    tokens += tokenize(str)
+                    non_ent_toks = tokenize(str)
+                    tokens += non_ent_toks
+                    non_ent_tok_cts += len(non_ent_toks)
                 elif curr_state == 'u':
                     cui_toks = tokenize(str)
                     cui_idx = cui_labels.index(curr_cui)
                     for tok_idx in range(len(tokens), len(tokens) + len(cui_toks)):
                         fixed_labels[tok_idx] = cui_idx
                     tokens += cui_toks
+                    ent_tok_cts += len(cui_toks)
 
         N = len(tokens)
         assert N > 0
@@ -129,7 +139,6 @@ if __name__ == '__main__':
         labels = []
         cost_mat = np.zeros([C, N])
         back_pointer = np.zeros([C, N], dtype=int)
-
 
         for n in range(N):
             tok = tokens[n].lower()
@@ -161,7 +170,8 @@ if __name__ == '__main__':
         full_labels.append(labels)
         flat_target_toks.append(tokens)
 
+    print('CUI token counts={}. Non-CUI token counts={}'.format(ent_tok_cts, non_ent_tok_cts))
     print('Done!  Now adding two columns and re-saving to {}'.format(in_fn))
-    df['cui_labels'] = full_labels
-    df['flat_spacy_target_toks'] = flat_target_toks
+    df['cui_labels'] = json.dumps(full_labels)
+    df['flat_spacy_target_toks'] = json.dumps(flat_target_toks)
     df.to_csv(in_fn, index=False)

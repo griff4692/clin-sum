@@ -120,7 +120,6 @@ def pack_example(example):
     target_paras = paragraph_from_html(course_str)
     packed_source = pack_frags(source_paras, long_frags)
     packed_target = pack_frags(target_paras, long_frags)
-
     ent_fn = os.path.join(out_dir, 'entity', 'entities', '{}_{}.csv'.format(mrn, account))
 
     ent_df = pd.read_csv(ent_fn)
@@ -159,7 +158,7 @@ if __name__ == '__main__':
     n = len(examples)
 
     mini_str = '_small' if args.mini else ''
-    examples_packed = list(p_uimap(pack_example, examples, num_cpus=0.75))
+    examples_packed = list(p_uimap(pack_example, examples, num_cpus=0.8))
     out_fn = os.path.join(out_dir, 'srl_packed_examples{}.csv'.format(mini_str))
     print('Done! Now saving {} packed examples to {}'.format(len(examples_packed), out_fn))
     packed_examples_df = pd.DataFrame(examples_packed)

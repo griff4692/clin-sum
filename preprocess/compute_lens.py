@@ -1,40 +1,57 @@
-from collections import defaultdict, Counter
+from collections import defaultdict
 import itertools
-from functools import partial
+import json
 import os
-import re
-import string
+from random import random
 import sys
-from time import time
+import re
 
+import argparse
 import numpy as np
-import pandas as pd
-from tqdm import tqdm
 from p_tqdm import p_uimap
-import spacy
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
-from preprocess.section_utils import resolve_course, sent_toks_from_html
 from preprocess.utils import *
+from preprocess.section_utils import sents_from_html, sent_toks_from_html
+
+
+def generate_counts(example):
+    source = example['spacy_source_toks']
+    target = example['spacy_target_toks']
+    source_sents = sents_from_html(source)
+    target_sents = sents_from_html(target)
+    source_toks = sent_toks_from_html(source)
+    target_toks = sent_toks_from_html(target)
+
+    num_docs = len(re.findall(r'd note_id', source))
+    return {
+        'mrn': example['mrn'],
+        'account': example['account'],
+        'source_toks': len(source_toks),
+        'target_toks': len(target_toks),
+        'source_sents': len(source_sents),
+        'target_sents': len(target_sents),
+        'source_docs': num_docs,
+        'target_docs': 1,
+    }
 
 
 if __name__ == '__main__':
-    _, _, mrns = get_mrn_status_df('valid_example')
+    parser = argparse.ArgumentParser('Script to compute dataset statistics.')
 
-    mrn_sample = np.random.choice(mrns, size=500, replace=False)
-    target_lens = []
-    source_lens = []
+    args = parser.parse_args()
 
-    for i in tqdm(range(len(mrn_sample))):
-        mrn = mrn_sample[i]
-        mrn_dir = os.path.join(out_dir, 'mrn', mrn)
-        examples_fn = os.path.join(mrn_dir, 'examples.csv')
-        examples_df = pd.read_csv(examples_fn)
+    records = get_records(split=['validation', 'train', 'test']).to_dict('records')
+    output = list(p_uimap(generate_counts, records, num_cpus=0.8))
 
-        for example in examples_df.to_dict('records'):
-            target_lens.append(len(sent_toks_from_html(resolve_course(example['spacy_target_toks']))))
-            source_lens.append(len(sent_toks_from_html(example['spacy_source_toks'])))
+    count_df = pd.DataFrame(output)
+    count_fn = 'stats/counts.csv'
+    count_df.to_csv(count_fn, index=False)
 
-    df = pd.DataFrame({'target': target_lens, 'source': source_lens})
-    df.to_csv('tmp.csv', index=False)
+    print(count_df.sum())
+    print(count_df.mean())
+    print(count_df.median())
+    print(count_df.min())
+    print(count_df.max())
