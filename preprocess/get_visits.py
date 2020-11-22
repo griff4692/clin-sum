@@ -4,6 +4,7 @@ import os
 from time import time
 
 import pandas as pd
+from scipy.stats import describe
 
 from constants import *
 from utils import *
@@ -111,3 +112,11 @@ if __name__ == '__main__':
     mrn_status_df.to_csv(mrn_status_fn, index=False)
 
     duration(start_time)
+
+    small = df['admit_date_min'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f'))
+    big = df['discharge_date_max'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f'))
+    deltas = [big[i] - small[i] for i in range(len(small))]
+    days = [d.total_seconds() / 86400.0 for d in deltas]
+
+    print('Length of stay in days...')
+    print(describe(days))

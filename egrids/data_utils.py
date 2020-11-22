@@ -14,7 +14,7 @@ from preprocess.constants import out_dir
 
 class EGridDataset(Dataset):
     def __init__(self, vocab, split, k=3):
-        in_fn = os.path.join(out_dir, 'egrids_small.json')
+        in_fn = os.path.join(out_dir, 'egrids.json')
         print('Loading {} set from {}'.format(split, in_fn))
         with open(in_fn, 'r') as fd:
             all_examples = json.load(fd)

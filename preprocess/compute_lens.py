@@ -43,15 +43,28 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    records = get_records(split=['validation', 'train', 'test']).to_dict('records')
-    output = list(p_uimap(generate_counts, records, num_cpus=0.8))
+    in_fn = os.path.join(out_dir, 'full_examples_no_trunc.csv')
+    print('Loading data from {}'.format(in_fn))
+    df = pd.read_csv(in_fn)
+    print('Loaded {} distinct visits'.format(len(df)))
+    output = list(p_uimap(generate_counts, df.to_dict('records'), num_cpus=0.8))
 
     count_df = pd.DataFrame(output)
-    count_fn = 'stats/counts.csv'
+    count_df['total_docs'] = count_df['source_docs'].apply(lambda x: x + 1)
+    count_fn = 'stats/counts_no_trunc.csv'
     count_df.to_csv(count_fn, index=False)
 
+    print('Sum...')
     print(count_df.sum())
+
+    print('Mean...')
     print(count_df.mean())
+
+    print('Median...')
     print(count_df.median())
+
+    print('Min...')
     print(count_df.min())
+
+    print('Max...')
     print(count_df.max())

@@ -167,11 +167,11 @@ if __name__ == '__main__':
 
         order_idxs = list(reversed(reverse_order))
         labels = [cui_labels[i] for i in order_idxs]
-        full_labels.append(labels)
-        flat_target_toks.append(tokens)
+        full_labels.append(json.dumps(labels))
+        flat_target_toks.append(json.dumps(tokens))
 
     print('CUI token counts={}. Non-CUI token counts={}'.format(ent_tok_cts, non_ent_tok_cts))
     print('Done!  Now adding two columns and re-saving to {}'.format(in_fn))
-    df['cui_labels'] = json.dumps(full_labels)
-    df['flat_spacy_target_toks'] = json.dumps(flat_target_toks)
+    df['cui_labels'] = full_labels
+    df['flat_spacy_target_toks'] = flat_target_toks
     df.to_csv(in_fn, index=False)

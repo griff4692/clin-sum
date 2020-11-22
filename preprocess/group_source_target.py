@@ -97,7 +97,5 @@ if __name__ == '__main__':
     mrn_status_df, mrn_valid_idxs, mrns = get_mrn_status_df('valid_account')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
-    start_time = time()
     statuses = p_imap(generate_examples, mrns, num_cpus=0.75)
     update_mrn_status_df(mrn_status_df, list(statuses), mrn_valid_idxs, 'valid_example')
-    duration(start_time)

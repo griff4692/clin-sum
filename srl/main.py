@@ -40,7 +40,7 @@ def pack_ents(text, ent_df, paired_cuis, disorder_cuis):
     for entity in ent_df_records:
         source_val = entity['source_value']
         tui = entity['tui']
-        search_regex = re.escape(source_val)
+        search_regex = r'\b' + re.escape(source_val) + r'\b'
         cui_name_nospace = '_'.join(entity['cui_name'].split(' '))
         cui = entity['cui']
         is_disorder = '1' if cui in disorder_cuis else '0'
@@ -109,6 +109,13 @@ def pack_frags(paras, frags):
 
 
 def pack_example(example):
+    new_example = {}
+    remove_keys = ['source_str', 'target_str', 'spacy_source_toks', 'spacy_target_toks']
+    for key in example:
+        if key in remove_keys:
+            continue
+        new_example[key] = example[key]
+
     account = example['account']
     mrn = example['mrn']
     frags = [] if type(example['fragments']) == float else example['fragments'].split(FRAG_DELIM)
@@ -140,26 +147,29 @@ def pack_example(example):
     srl_packed_source = replace_paragraphs(example['source_str'], full_packed_source.split(' <p> '))
     srl_packed_target = replace_paragraphs(course_str, full_packed_target.split(' <p> '))
 
-    example['srl_packed_source'] = srl_packed_source
-    example['srl_packed_target'] = srl_packed_target
-    example['long_fragments'] = FRAG_DELIM.join(long_frags)
+    new_example['srl_packed_source'] = srl_packed_source
+    new_example['srl_packed_target'] = srl_packed_target
+    new_example['long_fragments'] = FRAG_DELIM.join(long_frags)
 
-    return example
+    return new_example
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to pack source and summary with entity and copy-paste fragments.')
     parser.add_argument('-mini', default=False, action='store_true')
+    parser.add_argument('--max_n', default=None, type=int)
 
     args = parser.parse_args()
 
     splits = ['validation', 'train']
-    examples = get_records(split=splits, mini=args.mini).to_dict('records')
-    n = len(examples)
-
     mini_str = '_small' if args.mini else ''
-    examples_packed = list(p_uimap(pack_example, examples, num_cpus=0.8))
     out_fn = os.path.join(out_dir, 'srl_packed_examples{}.csv'.format(mini_str))
+    examples = get_records(split=splits, mini=args.mini).to_dict('records')
+    if args.max_n is not None:
+        examples = np.random.choice(examples, size=args.max_n, replace=False)
+        out_fn = os.path.join(out_dir, 'srl_packed_examples_{}.csv'.format(str(args.max_n)))
+    n = len(examples)
+    examples_packed = list(p_uimap(pack_example, examples, num_cpus=0.8))
     print('Done! Now saving {} packed examples to {}'.format(len(examples_packed), out_fn))
     packed_examples_df = pd.DataFrame(examples_packed)
     packed_examples_df.to_csv(out_fn, index=False)

@@ -6,8 +6,6 @@ import sys
 
 import argparse
 import pandas as pd
-import spacy
-import scispacy
 import numpy as np
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
@@ -20,6 +18,8 @@ from preprocess.tokenize_mrns import strip_punc
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to measure distribution of CUIs.')
     parser.add_argument('-mini', default=False, action='store_true')
+    parser.add_argument('--max_n', type=int, default=None)
+    parser.add_argument('-analyze_source', default=False, action='store_true')
 
     args = parser.parse_args()
     mini_str = '_small' if args.mini else ''
@@ -37,59 +37,59 @@ if __name__ == '__main__':
             json.dump(cui_tui_group_map, fd)
 
     in_fn = os.path.join(out_dir, 'srl_packed_examples{}.csv'.format(mini_str))
+    if args.max_n is not None:
+        in_fn = os.path.join(out_dir, 'srl_packed_examples_{}.csv'.format(str(args.max_n)))
     transition_mat = np.zeros([3, 3])
     sem_group_set = ['Chemicals & Drugs', 'Disorders', 'Procedures']
 
     print('Loading {}...'.format(in_fn))
     df = pd.read_csv(in_fn)
-    df.dropna(subset=['cui_labels'], inplace=True)
+    srl_col = 'srl_packed_source' if args.analyze_source else 'srl_packed_target'
+    df.dropna(subset=[srl_col], inplace=True)
     dist = []
     records = df.to_dict('records')
     n = len(records)
     for record_idx in tqdm(range(n)):
         record = records[record_idx]
-        cui_labels = re.findall(r'\'(C\d+)\'', record['cui_labels'])
-        n = len(cui_labels)
-        prev_idx = -1
-        record_dist = []
-        for idx in range(len(cui_labels)):
-            if idx > 0 and cui_labels[idx] == cui_labels[idx - 1]:
-                continue
-            cui = cui_labels[idx]
-            if cui in cui_tui_group_map:
-                tui, sem_group = cui_tui_group_map[cui]
-            else:
-                tui, sem_group = None, None
-                print('Unrecognized CUI={}'.format(cui))
+        all_text = record[srl_col]
+        texts = all_text.split('<d>')
+        for text in texts:
+            cuis = re.findall(r'cui=(\w+) ', text)
+            n = len(cuis)
+            prev_idx = -1
+            record_dist = []
+            for idx in range(len(cuis)):
+                cui = cuis[idx]
+                if cui in cui_tui_group_map:
+                    tui, sem_group = cui_tui_group_map[cui]
+                else:
+                    tui, sem_group = None, None
+                    print('Unrecognized CUI={}'.format(cui))
 
-            record_dist.append({
-                'cui': cui,
-                'tui': tui,
-                'sem_group': sem_group,
-                'ent_pos_start': idx,
-                'total_tok_len': n
-            })
+                record_dist.append({
+                    'cui': cui,
+                    'tui': tui,
+                    'sem_group': sem_group,
+                    'ent_pos_start': idx,
+                    'total_tok_len': n
+                })
 
-        for i in range(1, len(record_dist)):
-            row_sg = record_dist[i - 1]['sem_group']
-            col_sg = record_dist[i]['sem_group']
-            if row_sg in sem_group_set and col_sg in sem_group_set:
-                row = sem_group_set.index(row_sg)
-                col = sem_group_set.index(col_sg)
-                transition_mat[row, col] += 1
-        dist += record_dist
-
-    print('Transition Matrix:')
-    print('\t'.join(sem_group_set))
-    for r in range(len(sem_group_set)):
-        str_row = '\t'.join([str(x) for x in transition_mat[r]])
-        print(sem_group_set[r] + '\t' + str_row)
+            for i in range(1, len(record_dist)):
+                row_sg = record_dist[i - 1]['sem_group']
+                col_sg = record_dist[i]['sem_group']
+                if row_sg in sem_group_set and col_sg in sem_group_set:
+                    row = sem_group_set.index(row_sg)
+                    col = sem_group_set.index(col_sg)
+                    transition_mat[row, col] += 1
+            dist += record_dist
 
     dist_df = pd.DataFrame(dist)
+    target_n = min(100000, len(dist_df))
+    print('Sampling down from {} to {}'.format(len(dist_df), target_n))
+    dist_df = dist_df.sample(n=target_n, replace=False)
     dist_df['tentile'] = dist_df['ent_pos_start'].combine(
         dist_df['total_tok_len'], lambda a, b: int((float(a) / float(b)) // 0.1) + 1)
-    dist_df_sample = dist_df.sample(n=100000, replace=False)
-    sem_group_counts = dist_df_sample.groupby(['sem_group', 'tentile']).size().reset_index(name='freq')
+    sem_group_counts = dist_df.groupby(['sem_group', 'tentile']).size().reset_index(name='freq')
     sem_group_counts = sem_group_counts[sem_group_counts['sem_group'].isin(sem_group_set)]
     for sem_group in sem_group_counts['sem_group'].unique():
         sub_df = sem_group_counts[sem_group_counts['sem_group'] == sem_group]
@@ -98,6 +98,13 @@ if __name__ == '__main__':
         for record in sub_df.to_dict('records'):
             print(record['tentile'], ',', record['freq'] / float(total))
         print('\n')
-    out_fn = os.path.join(base_dir, 'target_ent_distribution.csv')
+    target_str = '_source' if args.analyze_source else '_target'
+    out_fn = os.path.join(base_dir, 'target_ent_distribution_sample{}.csv'.format(target_str))
     print('Saving {} rows to {}'.format(len(dist_df), out_fn))
     dist_df.to_csv(out_fn, index=False)
+
+    print('Transition Matrix:')
+    print('\t'.join(sem_group_set))
+    for r in range(len(sem_group_set)):
+        str_row = '\t'.join([str(x) for x in transition_mat[r]])
+        print(sem_group_set[r] + '\t' + str_row)
