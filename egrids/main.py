@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 import glob
 import os
@@ -7,28 +8,38 @@ import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 
 import argparse
+from medcat.cat import CAT
+from medcat.utils.vocab import Vocab as MedcatVocab
+from medcat.cdb import CDB
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-
 import spacy
 import scispacy
 from scispacy.abbreviation import AbbreviationDetector
 from scispacy.linking import EntityLinker
-
-from medcat.cat import CAT
-from medcat.utils.vocab import Vocab
-from medcat.cdb import CDB
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from egrids.data_utils import EGridDataset
 from egrids.model import EntityGridModel
 from egrids.vocab import Vocab
 from preprocess.constants import out_dir
 from utils import tens_to_np
+
+
+whitelist_tuis = {
+    'T034'  # Lab results
+}
+
+whitelist_semgroup = {
+    'Chemicals & Drugs',
+    'Disorders',
+    'Procedures',
+}
 
 
 def collate_fn(batch):
@@ -100,10 +111,21 @@ if __name__ == '__main__':
     )
 
     if args.build_egrid:
-        vocab = Vocab()
+        snomed_core_fn = '../data/SNOMEDCT_CORE_SUBSET_202005/SNOMEDCT_CORE_SUBSET_202005.txt'
+        semgroups_fn = '../data/umls_semgroups.txt'
+
+        cols = ['UMLS_CUI', 'SNOMED_FSN', 'SNOMED_CID']
+        snomed_df = pd.read_csv(snomed_core_fn, delimiter='|')[cols]
+        core_cui_set = set(snomed_df['UMLS_CUI'].tolist())
+
+        # sem_group_acronym|sem_group|tui|tui_description
+        sem_groups_df = pd.read_csv(semgroups_fn, delimiter='|').dropna()
+        tui_group_map = dict(zip(sem_groups_df['tui'].tolist(), sem_groups_df['sem_group'].tolist()))
+
+        medcat_vocab = MedcatVocab()
         print('Loading vocabulary...')
         # Load the vocab model you downloaded
-        vocab.load_dict('../data/medcat/vocab.dat')
+        medcat_vocab.load_dict('../data/medcat/vocab.dat')
 
         # Load the cdb model you downloaded
         cdb = CDB()
@@ -112,21 +134,24 @@ if __name__ == '__main__':
 
         # create cat
         print('Creating MedCAT pipeline...')
-        cat = CAT(cdb=cdb, vocab=vocab)
+        cat = CAT(cdb=cdb, vocab=medcat_vocab)
 
         print('Loading UMLS entity linker...')
         linker = EntityLinker(resolve_abbreviations=True, name='umls')
         cui_to_ent_map = linker.kb.cui_to_entity
 
         eval_df = pd.read_csv(args.eval_fp)
+        eval_df.dropna(subset=['prediction'], inplace=True)
         records = eval_df.to_dict('records')
+        num_records = len(records)
         egrids = []
-        for record in records:
-            prediction = record['predictions']
+        for ridx in tqdm(range(num_records)):
+            record = records[ridx]
+            prediction = record['prediction']
             egrid = defaultdict(list)
             sents = prediction.split(' <s> ')
             for sent_idx, sent in enumerate(sents):
-                ents = cat.get_entities(sents[sent_idx])
+                entities = cat.get_entities(sent)
                 for entity in entities:
                     is_core = entity['cui'] in core_cui_set
                     if entity['tui'] is None or entity['tui'] == 'None':
@@ -142,7 +167,7 @@ if __name__ == '__main__':
                             'sent_idx': sent_idx,
                         })
             egrids.append({'egrid': egrid, 'mrn': record['mrn'], 'split': 'validation', 'num_target_sents': len(sents)})
-            with open(os.path.join(out_dir, 'egrids_test.json', 'w')) as fd:
+            with open(os.path.join(out_dir, 'egrids_test.json'),  'w') as fd:
                 json.dump(egrids, fd)
     elif args.eval:
         weights_dir = 'weights/11_21_submit/'
