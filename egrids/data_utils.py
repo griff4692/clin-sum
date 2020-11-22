@@ -5,6 +5,8 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
 from torch.utils.data import Dataset
 
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
@@ -13,8 +15,11 @@ from preprocess.constants import out_dir
 
 
 class EGridDataset(Dataset):
-    def __init__(self, vocab, split, k=3):
-        in_fn = os.path.join(out_dir, 'egrids.json')
+    def __init__(self, vocab, split, k=3, mini=False):
+        if mini:
+            in_fn = os.path.join(out_dir, 'egrids_small.json')
+        else:
+            in_fn = os.path.join(out_dir, 'egrids.json')
         print('Loading {} set from {}'.format(split, in_fn))
         with open(in_fn, 'r') as fd:
             all_examples = json.load(fd)
@@ -59,8 +64,52 @@ class EGridDataset(Dataset):
 
 
 if __name__ == '__main__':
-    with open('data/vocab.pk', 'rb') as fd:
-        vocab = pickle.load(fd)
+    sparsity_df = []
+    in_fn = os.path.join(out_dir, 'egrids.json')
+    with open(in_fn, 'r') as fd:
+        all_examples = json.load(fd)
 
-    dataset = EGrid(vocab, 'validation', k=3)
-    print(dataset[0])
+    n = len(all_examples)
+    print('Processing...')
+    for ex_idx in tqdm(range(n)):
+        example = all_examples[ex_idx]
+        egrid = example['egrid']
+        cui_info = example['cui_info']
+        for cui in egrid:
+            tui = cui_info[cui]['tui']
+            sem_group = cui_info[cui]['sem_group']
+            locations = egrid[cui]
+            num_mentions = len(locations)
+            sent_idxs = list(sorted([l['sent_idx'] for l in locations]))
+            num_adjacent = 0
+            num_same = 0
+            for i in range(1, num_mentions):
+                if sent_idxs[i - 1] == sent_idxs[i]:
+                    num_same += 1
+                if sent_idxs[i - 1] + 1 == sent_idxs[i]:
+                    num_adjacent += 1
+            sparsity_df.append({
+                'cui': cui,
+                'tui': tui,
+                'sem_group': sem_group,
+                'num_mentions': num_mentions,
+                'num_adjacent': num_adjacent,
+                'num_same': num_same
+            })
+
+    out_fn = 'stats/entity_distribution.csv'
+    df = pd.DataFrame(sparsity_df)
+    print('Saving {} rows to {}'.format(len(df), out_fn))
+    df.to_csv(out_fn, index=False)
+
+    n = len(df)
+    single_mentions_df = df[df['num_mentions'] == 1]
+    multiple_mentions_df = df[df['num_mentions'] > 1]
+    mult_n = len(multiple_mentions_df)
+    print('Number of rows={}. Number of single mentions={}'.format(n, len(single_mentions_df)))
+
+    denom = float(multiple_mentions_df['num_mentions'].sum() - mult_n)
+    adj_freq = multiple_mentions_df['num_adjacent'].sum() / denom
+    same_freq = multiple_mentions_df['num_same'].sum() / denom
+
+    print('Adjacent likelihood={}. Same likelihood={}'.format(adj_freq, same_freq))
