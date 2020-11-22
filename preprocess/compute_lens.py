@@ -25,8 +25,15 @@ def generate_counts(example):
     source_toks = sent_toks_from_html(source)
     target_toks = sent_toks_from_html(target)
 
+    source_sent_lens, target_sent_lens = [], []
+    for source_sent in source_sents:
+        source_sent_lens.append(len(source_sent.split(' ')))
+
+    for target_sent in target_sents:
+        target_sent_lens.append(len(target_sent.split(' ')))
+
     num_docs = len(re.findall(r'd note_id', source))
-    return {
+    return ({
         'mrn': example['mrn'],
         'account': example['account'],
         'source_toks': len(source_toks),
@@ -35,7 +42,7 @@ def generate_counts(example):
         'target_sents': len(target_sents),
         'source_docs': num_docs,
         'target_docs': 1,
-    }
+    }, {'source_sent_lens': source_sent_lens, 'target_sent_lens': target_sent_lens})
 
 
 if __name__ == '__main__':
@@ -47,7 +54,14 @@ if __name__ == '__main__':
     print('Loading data from {}'.format(in_fn))
     df = pd.read_csv(in_fn)
     print('Loaded {} distinct visits'.format(len(df)))
-    output = list(p_uimap(generate_counts, df.to_dict('records'), num_cpus=0.8))
+    outputs = list(p_uimap(generate_counts, df.to_dict('records'), num_cpus=0.8))
+
+    counts = [output[0] for output in outputs]
+    source_sent_lens = np.array(list(itertools.chain(*[output[1]['source_sent_lens'] for output in outputs])))
+    target_sent_lens = np.array(list(itertools.chain(*[output[1]['target_sent_lens'] for output in outputs])))
+
+    print('Source sentence length. Mean={}. STD={}.'.format(np.mean(source_sent_lens), np.std(source_sent_lens)))
+    print('Target sentence length. Mean={}. STD={}.'.format(np.mean(target_sent_lens), np.std(target_sent_lens)))
 
     count_df = pd.DataFrame(output)
     count_df['total_docs'] = count_df['source_docs'].apply(lambda x: x + 1)
