@@ -15,16 +15,19 @@ from preprocess.constants import out_dir
 
 
 class EGridDataset(Dataset):
-    def __init__(self, vocab, split, k=3, mini=False):
-        if mini:
-            in_fn = os.path.join(out_dir, 'egrids_small.json')
+    def __init__(self, vocab, split, k=3, mini=False, egrids=None):
+        if egrids is None:
+            if mini:
+                in_fn = os.path.join(out_dir, 'egrids_small.json')
+            else:
+                in_fn = os.path.join(out_dir, 'egrids.json')
+            print('Loading {} set from {}'.format(split, in_fn))
+            with open(in_fn, 'r') as fd:
+                all_examples = json.load(fd)
+            print('Done Loading...')
+            self.examples = [ex for ex in all_examples if ex['split'] == split and len(ex['egrid']) > 0]
         else:
-            in_fn = os.path.join(out_dir, 'egrids.json')
-        print('Loading {} set from {}'.format(split, in_fn))
-        with open(in_fn, 'r') as fd:
-            all_examples = json.load(fd)
-        print('Done Loading...')
-        self.examples = [ex for ex in all_examples if ex['split'] == split and len(ex['egrid']) > 0]
+            self.examples = egrids
         self.vocab = vocab
         self.k = k
 
