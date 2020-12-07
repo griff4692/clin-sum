@@ -72,24 +72,20 @@ class EntityGridModel(pl.LightningModule):
 
         return loss
 
-    def test_step(self, *args, **kwargs):
+    def test_step(self, batch, batch_idx):
         pos_score = self.shared_step(batch['positive_ids'], batch['positive_samples'])
         neg_score = self.shared_step(batch['negative_ids'], batch['negative_samples'])
-        # accuracy = (pos_score > neg_score).sum() / float(len(pos_score))
-        # loss = torch.clamp(1 - pos_score + neg_score, min=0).mean()
-        # self.log_dict({'test_loss': loss, 'test_acc': accuracy})
         return neg_score, pos_score
 
     def test_epoch_end(self, outputs) -> None:
         # this out is now the full size of the batch
-        all_test_step_outs = output_results.out
-
         num_correct = 0
         num_tested = 0
-        for neg_score, pos_score in output_results.out:
-            if pos_score.item() > neg_score.item():
-                num_correct += 1
-            num_tested
+        for output in outputs:
+            neg_score, pos_score = output
+            batch_size = len(neg_score)
+            num_correct += (pos_score > neg_score).sum()
+            num_tested += batch_size
         accuracy = float(num_correct) / float(num_tested)
         self.log('test_accuracy', accuracy)
         print('Test accuracy={}'.format(accuracy))
