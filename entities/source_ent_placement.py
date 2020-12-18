@@ -15,6 +15,44 @@ from preprocess.section_utils import HTML_REGEX
 from preprocess.tokenize_mrns import sent_segment
 from preprocess.utils import *
 
+
+def decile(x):
+    for start_idx in np.arange(0.0, 1.0, 0.1):
+        end_idx = start_idx + 0.1
+        if start_idx <= x < end_idx:
+            return '{}-{}'.format(str(round(start_idx, 1)), str(round(end_idx, 1)))
+    return '0.9-1.0'
+
+
+def coverage(doc_order, coverages, doc_to_ent, target_n):
+    covered = set()
+    docs_used = len(doc_order)
+    for doc_num, doc_idx in enumerate(doc_order):
+        ents = doc_to_ent[doc_idx]
+        prev_size = len(covered)
+        covered = covered.union(ents)
+        now_size = len(covered)
+        ratio = (now_size - prev_size) / float(target_n)
+        doc_position = decile(doc_num / float(num_docs - 1))
+        coverages[doc_position].append(ratio)
+        if len(covered) == target_n:
+            docs_used = min(docs_used, doc_num + 1)
+    return docs_used
+
+
+def aggregate(coverages):
+    coverages_agg = []
+    for decile, ratios in coverages.items():
+        avg = np.array(ratios).mean()
+        coverages_agg.append({
+            'decile': decile,
+            'coverage': avg,
+            'examples': len(ratios),
+        })
+
+    return coverages_agg
+
+
 if __name__ == '__main__':
     print('Loading entity dataframe...')
     examples = pd.read_csv(os.path.join(out_dir, 'full_examples.csv'))
@@ -28,7 +66,8 @@ if __name__ == '__main__':
     docs_used = []
     positions = []
     skipped = 0
-    coverages = defaultdict(list)
+    forward_coverages = defaultdict(list)
+    oracle_coverages = defaultdict(list)
     backward_coverages = defaultdict(list)
 
     for record_idx in tqdm(range(num_records)):
@@ -38,7 +77,7 @@ if __name__ == '__main__':
         ents_fn = os.path.join(out_dir, 'entity', 'entities', '{}_{}.csv'.format(str(mrn), str(account)))
 
         if not os.path.exists(ents_fn):
-            print('No entities for mrn={}, account={}.'.format(mrn, account))
+            # print('No entities for mrn={}, account={}.'.format(mrn, account))
             continue
 
         ents_df = pd.read_csv(ents_fn)
@@ -107,83 +146,50 @@ if __name__ == '__main__':
             doc_idx = doc_ids[sent_idx]
             doc_len = doc_lens[doc_idx]
             doc_to_ent[doc_idx].add(cui)
-            positions.append(actual_sent_idx / float(doc_len - 1))
+            positions.append(actual_sent_idx / max(1.0, float(doc_len - 1)))
         for doc_idx in range(num_docs):
             docs_by_num_ents[doc_idx] = len(doc_to_ent[doc_idx])
         doc_order = np.argsort(docs_by_num_ents)[::-1]
 
-        need = []
-        covered = set()
-        num_docs_used = 0
-        for doc_idx in doc_order:
-            covered = covered.union(doc_to_ent[doc_idx])
-            num_docs_used += 1
-            if len(covered) == target_n:
-                break
+        if num_docs == 1:
+            continue
+
+        forward_docs_used = coverage(list(range(num_docs)), forward_coverages, doc_to_ent, target_n)
+        backward_docs_used = coverage(list(reversed(range(num_docs))), backward_coverages, doc_to_ent, target_n)
+        oracle_docs_used = coverage(doc_order, oracle_coverages, doc_to_ent, target_n)
 
         docs_used.append({
-            'num_docs_used': num_docs_used,
-            'num_docs': target_n,
-            'percent_used': num_docs_used / float(target_n)
+            'forward_docs_used': forward_docs_used,
+            'forward_docs_used_perc': forward_docs_used / float(num_docs),
+            'backward_docs_used': backward_docs_used,
+            'backward_docs_used_perc': backward_docs_used / float(num_docs),
+            'oracle_docs_used': oracle_docs_used,
+            'oracle_docs_used_perc': oracle_docs_used / float(num_docs),
         })
-
-        covered = set()
-        for doc_idx in range(num_docs):
-            ents = doc_to_ent[doc_idx]
-            prev_size = len(covered)
-            covered = covered.union(doc_to_ent[doc_idx])
-            now_size = len(covered)
-            ratio = (now_size - prev_size) / float(target_n)
-            coverages[doc_idx].append(ratio)
-            if len(covered) == target_n:
-                break
-
-        covered = set()
-        for doc_idx in range(num_docs - 1, -1, -1):
-            ents = doc_to_ent[doc_idx]
-            prev_size = len(covered)
-            covered = covered.union(doc_to_ent[doc_idx])
-            now_size = len(covered)
-            ratio = (now_size - prev_size) / float(target_n)
-            backward_coverages[doc_idx].append(ratio)
-            if len(covered) == target_n:
-                break
 
     docs_used = pd.DataFrame(docs_used)
-    print(docs_used['num_docs_used'].mean())
-    print(docs_used['num_docs_used'].std())
-    print(docs_used['percent_used'].mean())
-    print(docs_used['percent_used'].std())
+    agg_docs_used = []
+    for col in list(docs_used.columns):
+        col_mean = docs_used[col].mean()
+        col_std = docs_used[col].std()
+        col_median = np.median(docs_used[col])
+
+        agg_docs_used.append({'stat': col + '_mean', 'value': col_mean})
+        agg_docs_used.append({'stat': col + '_std', 'value': col_std})
+        agg_docs_used.append({'stat': col + '_median', 'value': col_median})
+
+    agg_docs_used = pd.DataFrame(agg_docs_used)
     print('Caveat! Skipped {} out of {} examples.'.format(skipped, len(records)))
-    docs_used.to_csv('data/docs_used.csv', index=False)
+    agg_docs_used.to_csv('data/docs_used.csv', index=False)
 
-    chronology = []
-    for doc_idx, ratios in coverages.items():
-        avg = np.array(ratios).mean()
-        chronology.append({
-            'doc_idx': doc_idx,
-            'coverage': avg,
-            'examples': len(ratios),
-        })
+    forward_chronology = pd.DataFrame(aggregate(forward_coverages))
+    forward_chronology.to_csv('data/forward_chronology_coverage.csv', index=False)
 
-    chronology = pd.DataFrame(chronology)
-    chronology['doc_num'] = chronology['doc_idx'].apply(lambda x: x + 1)
-    chronology.sort_values(by='doc_num', inplace=True)
-    chronology[['doc_num', 'coverage', 'examples']].to_csv('data/chronology_coverage.csv', index=False)
+    backward_chronology = pd.DataFrame(aggregate(backward_coverages))
+    backward_chronology.to_csv('data/backward_chronology_coverage.csv', index=False)
 
-    backwards = []
-    for doc_idx, ratios in backward_coverages.items():
-        avg = np.array(ratios).mean()
-        backwards.append({
-            'doc_idx': doc_idx,
-            'coverage': avg,
-            'examples': len(ratios),
-        })
-
-    backwards = pd.DataFrame(backwards)
-    backwards['doc_num'] = backwards['doc_idx'].apply(lambda x: x + 1)
-    backwards.sort_values(by='doc_num', ascending=False, inplace=True)
-    backwards[['doc_num', 'coverage', 'examples']].to_csv('data/backward_chronology_coverage.csv', index=False)
+    oracle_chronology = pd.DataFrame(aggregate(oracle_coverages))
+    oracle_chronology.to_csv('data/oracle_chronology_coverage.csv', index=False)
 
     df = pd.DataFrame({'positions': positions})
     df.to_csv('data/source_relative_positions.csv', index=False)

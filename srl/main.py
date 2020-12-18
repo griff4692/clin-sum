@@ -41,7 +41,7 @@ def pack_ents(text, ent_df, paired_cuis, disorder_cuis):
         source_val = entity['source_value']
         tui = entity['tui']
         search_regex = r'\b' + re.escape(source_val) + r'\b'
-        cui_name_nospace = '_'.join(entity['cui_name'].split(' '))
+        cui_name_nospace = re.sub(r'[<>]+', '', '_'.join(entity['cui_name'].split(' ')))
         cui = entity['cui']
         is_disorder = '1' if cui in disorder_cuis else '0'
         match = re.search(search_regex, text)

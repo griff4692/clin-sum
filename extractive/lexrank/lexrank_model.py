@@ -1,10 +1,6 @@
 from collections import Counter, defaultdict
-import itertools
-from functools import partial
-import json
 import math
 import os
-from string import punctuation
 import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 
@@ -12,12 +8,6 @@ from lexrank import STOPWORDS
 from lexrank.algorithms.power_method import stationary_distribution
 from lexrank.utils.text import tokenize
 import numpy as np
-import pandas as pd
-from p_tqdm import p_uimap
-
-from preprocess.constants import out_dir
-from preprocess.section_utils import sents_from_html, pack_sentences
-from preprocess.utils import get_mrn_status_df
 
 
 class LexRank:
@@ -169,42 +159,3 @@ class LexRank:
             markov_matrix[i, columns] = 1 / len(columns)
 
         return markov_matrix
-
-
-def rank_sents(mrn):
-    example_fn = os.path.join(out_dir, 'mrn', str(mrn), 'examples.csv')
-    example_df = pd.read_csv(example_fn)
-    packed = []
-    for record in example_df.to_dict('records'):
-        sents = sents_from_html(record['spacy_source_toks'], convert_lower=True)
-        sent_scores = list(lxr.rank_sentences(
-            sents,
-            threshold=0.1,
-            fast_power_method=True,
-        ))
-        packed.append(pack_sentences(record['spacy_source_toks'], 'lr', sent_scores))
-    example_df['spacy_source_toks_packed'] = packed
-    example_df.to_csv(example_fn, index=False)
-    return len(example_df)
-
-
-if __name__ == '__main__':
-    splits_df = pd.read_csv(os.path.join(out_dir, 'splits.csv'))
-    all_mrns = splits_df['mrn'].unique().tolist()
-    print('Running LexRank...')
-    out_fn = os.path.join('..', 'data', 'idf.json')
-    with open(out_fn, 'rb') as fd:
-        idf = json.load(fd)
-
-    idf_score_dd = defaultdict(lambda: idf['default'])
-    print('Default IDF={}'.format(idf['default']))
-    for k, v in idf['idf_score'].items():
-        idf_score_dd[k] = v
-
-    stopwords = STOPWORDS['en']
-    stopwords = stopwords.union(set([x for x in punctuation]))
-    lxr = LexRank(idf_score=idf_score_dd, stopwords=stopwords, default=idf['default'])
-    s = p_uimap(rank_sents, all_mrns, num_cpus=0.33)
-
-    print('Processed {} examples.'.format(sum(list(s))))
-    print('Done!')

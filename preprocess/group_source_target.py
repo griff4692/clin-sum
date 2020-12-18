@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.expanduser('~/clin-sum'))
 from preprocess.constants import *
 from preprocess.utils import *
 from preprocess.section_utils import (
-    MIN_TARGET_LEN, extract_hospital_course, clean, sectionize, resolve_course, paragraph_toks_from_html
+    HTML_REGEX, MIN_TARGET_LEN, extract_hospital_course, clean, sectionize, resolve_course, paragraph_toks_from_html
 )
 
 
@@ -27,7 +27,8 @@ def process_target(target_records, account):
     target_str = ''
     seen = set()
     for record in target_records:
-        course_str = extract_hospital_course(clean(record['text'])).strip()
+        course_str, _ = extract_hospital_course(clean(record['text']))
+        course_str = course_str.strip()
         if course_str in seen:
             continue
         seen.add(course_str)
@@ -43,15 +44,38 @@ def process_source(source_records, account):
     source_str = ''
     seen = set()
     for record in source_records:
-        clean_formatted_str = sectionize(clean(record['text']).strip())
+        clean_formatted_str = sectionize(clean(record['text']).strip(), exclude_course=True)
         if clean_formatted_str in seen:
             continue
         seen.add(clean_formatted_str)
         if len(clean_formatted_str) > 0:
             source_str += '<d note_id={}> {} </d> '.format(record['note_id'], clean_formatted_str)
     source_str = source_str.strip()
-    if len(source_str) >= MIN_SOURCE_LEN:
-        return '<e account={}> {} </e>'.format(str(account), source_str)
+
+    split_text = re.split(HTML_REGEX, source_str)
+    is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
+    remove_idxs = []
+    seen_paras = set()
+    for idx, (st, it) in enumerate(zip(split_text, is_tag)):
+        st = st.strip()
+        if st.startswith('<p') and it:
+            para = split_text[idx + 1].strip()
+            if para in seen_paras:
+                assert split_text[idx + 2] == '</p>'
+                remove_idxs += [idx, idx + 1, idx + 2]
+            seen_paras.add(para)
+
+    final_pieces = []
+    for idx, st in enumerate(split_text):
+        if idx in remove_idxs:
+            continue
+        final_pieces.append(st)
+
+    source_str_no_dup_paras = ''.join(final_pieces)
+    ratio = len(source_str_no_dup_paras) / float(len(source_str))
+    assert ratio <= 1
+    if len(source_str_no_dup_paras) >= MIN_SOURCE_LEN:
+        return '<e account={}> {} </e>'.format(str(account), source_str_no_dup_paras)
     return ''
 
 
@@ -66,6 +90,7 @@ def generate_examples(mrn):
     notes_df = pd.read_csv(notes_fn)
     notes_df = notes_df.fillna(NULL_STR)
     notes_df['account'] = notes_df['account'].apply(stringify)
+    notes_df.drop_duplicates(subset=['text'], inplace=True)
 
     seen_targets = set()
 
@@ -74,6 +99,12 @@ def generate_examples(mrn):
         account_notes = notes_df[notes_df['account'] == account]
         source_df = account_notes[account_notes['is_source']]
         target_df = account_notes[account_notes['is_target']]
+        source_n, target_n = len(source_df), len(target_df)
+        if len(source_df) == 0 or len(target_df) == 0:
+            print('MRN={}. Account={}. Source Docs={}. Target docs={}. Skipping...'.format(
+                mrn, account, source_n, target_n
+            ))
+            continue
         assert source_df.shape[0] > 0 and target_df.shape[0] > 0
         source_note_str = process_source(source_df.to_dict('records'), account)
         target_note_str = process_target(target_df.to_dict('records'), account)
@@ -97,5 +128,6 @@ if __name__ == '__main__':
     mrn_status_df, mrn_valid_idxs, mrns = get_mrn_status_df('valid_account')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
-    statuses = p_imap(generate_examples, mrns, num_cpus=0.75)
+    statuses = list(p_imap(generate_examples, mrns, num_cpus=0.8))
+    print('{} out of {} are valid'.format(sum(statuses), len(statuses)))
     update_mrn_status_df(mrn_status_df, list(statuses), mrn_valid_idxs, 'valid_example')

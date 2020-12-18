@@ -63,7 +63,7 @@ if __name__ == '__main__':
     n = len(mrns)
     print('Processing {} mrns'.format(n))
     start_time = time()
-    outputs = list(p_uimap(get_extractive_fragments, mrns))
+    outputs = list(p_uimap(get_extractive_fragments, mrns, num_cpus=0.8))
     duration(start_time)
     stat_names = ['compression', 'coverage', 'density']
     stats = defaultdict(list)

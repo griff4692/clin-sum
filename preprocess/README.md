@@ -5,8 +5,7 @@
 3. `group_notes_by_visit`
 4. `group_source_target`
 5. `tokenize_mrns`
-6. `collect_examples`
-7. `extractive_fragments`
+6. `extractive_fragments`
+7. `collect_examples`
 8. `get_entities`
 9. `gen_splits`
-10. *[optional]* `pack_sents_lexrank`

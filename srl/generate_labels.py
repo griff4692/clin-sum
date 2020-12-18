@@ -77,6 +77,7 @@ if __name__ == '__main__':
     examples = df.to_dict('records')
 
     full_labels = []
+    full_label_names = []
     flat_target_toks = []
 
     non_ent_tok_cts = 0
@@ -99,6 +100,7 @@ if __name__ == '__main__':
         curr_state = None
         prev_state = None
         curr_cui = None
+        cui_to_name = {}
         for i, str in enumerate(split_text):
             str = str.strip()
             if len(str) == 0:
@@ -116,6 +118,12 @@ if __name__ == '__main__':
                     assert curr_state in {'p', 'c', 'd', 'e', 'u', 'f', 'h'}
                     if curr_state == 'u':
                         curr_cui = re.findall(r'cui=(\w+) ', str)[0]
+                        try:
+                            curr_cui_name = re.findall(r'name=(\S+) ', str)[0]
+                        except:
+                            print(str)
+                            raise
+                        cui_to_name[curr_cui] = curr_cui_name
             else:
                 if curr_state in {'p', 'f'}:
                     non_ent_toks = tokenize(str)
@@ -133,6 +141,7 @@ if __name__ == '__main__':
         assert N > 0
         if C == 0:
             full_labels.append(None)
+            full_label_names.append(None)
             flat_target_toks.append(tokens)
             continue
 
@@ -167,11 +176,14 @@ if __name__ == '__main__':
 
         order_idxs = list(reversed(reverse_order))
         labels = [cui_labels[i] for i in order_idxs]
+        label_names = [cui_to_name[l] for l in labels]
         full_labels.append(json.dumps(labels))
+        full_label_names.append(json.dumps(label_names))
         flat_target_toks.append(json.dumps(tokens))
 
     print('CUI token counts={}. Non-CUI token counts={}'.format(ent_tok_cts, non_ent_tok_cts))
     print('Done!  Now adding two columns and re-saving to {}'.format(in_fn))
     df['cui_labels'] = full_labels
+    df['cui_label_names'] = full_label_names
     df['flat_spacy_target_toks'] = flat_target_toks
     df.to_csv(in_fn, index=False)

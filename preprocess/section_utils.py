@@ -41,7 +41,8 @@ irrelevant_sections = [
     r'follow[- ]?up', r'contact information', r'instructions', r'date', r'surgical history', r'impression', r'doctor',
     r'patient', r'\bmh\b', r'\bsh\b', r'\bfh\b', r'assessment', r'handout', r'\bdispo', r'\bpe\b', r'\bimag',
     r'maintenance', r'measure', r'\bnote\b', r'\bvital', r'(on|at)? ?discharge', r'path(ology)?', r'authored',
-    r'assistant', r'allerg', r'physician', r'surgeon', r'appointment', r'schedul'
+    r'assistant', r'allerg', r'physician', r'surgeon', r'appointment', r'schedul', r'radiology', r'findings?', r'meds',
+    r'ros', r'review of system', 'a\/p', 'htn', 'signature'
 ]
 
 
@@ -96,11 +97,14 @@ def section_split(text):
     return sectioned_text, is_header_arr
 
 
-def sectionize(text):
+def sectionize(text, exclude_course=False):
     sectioned_text, is_header_arr = section_split(text)
+    _, course_idxs = extract_hospital_course(text)
     output_str = ''
     n = len(sectioned_text)
     for i, (is_header, t) in enumerate(zip(is_header_arr, sectioned_text)):
+        if exclude_course and i in course_idxs:
+            continue
         template = '<h> {} </h>' if is_header and len(t) < MAX_HEADER_LEN else '<p> {} </p>'
         is_next_header = i < n - 1 and is_header_arr[i + 1]
         if is_header and is_next_header:
@@ -109,7 +113,7 @@ def sectionize(text):
     return output_str.strip()
 
 
-def extract_hospital_course(text):
+def extract_hospital_course(text, end_on_dup_header=True):
     sectioned_text, is_header_arr = section_split(text)
     is_relevant_section = list(map(
         lambda x: x[0] and x[1] is not None and 'course' in x[1].lower() and len(x[1]) < MAX_HEADER_LEN,
@@ -124,33 +128,40 @@ def extract_hospital_course(text):
 
     course_idxs = np.where(is_relevant_section)[0]
     strs = []
+    idxs_used = []
     covered = set()
     for relevant_start_idx in course_idxs:
         if relevant_start_idx in covered:
             continue
         course_str = ''
         body_len = 0
+        seen_headers = set()
         for i in range(relevant_start_idx, len(sectioned_text)):
             covered.add(i)
             t = sectioned_text[i].strip()
             is_header = is_header_arr[i]
             template = '<h> {} </h>' if is_header and len(t) < MAX_HEADER_LEN else '<p> {} </p>'
-
+            early_exit = end_on_dup_header and is_header and t in seen_headers
+            if early_exit:
+                break
+            seen_headers.add(t)
             is_relevant = is_relevant_section[i]
             to_add, to_continue, trunc_idx = _is_resolved_relevant(t, is_header, is_relevant)
             if to_add:
                 truncated = t[:trunc_idx].strip()
-                if len(truncated) > 0:
+                trunc_len = len(truncated)
+                if trunc_len > 0:
                     course_str += template.format(truncated) + ' '
+                    idxs_used.append(i)
                     if not is_header:
-                        body_len += len(truncated)
+                        body_len += trunc_len
             if not to_continue:
                 break
         course_str = course_str.strip()
         if body_len >= MIN_TARGET_LEN:
             strs.append(course_str)
     strs = list(set(strs))
-    return ' '.join(map(lambda x: '<c> {} </c>'.format(x), strs))
+    return ' '.join(map(lambda x: '<c> {} </c>'.format(x), strs)), idxs_used
 
 
 def pack_sentences(text, key_str, values):
