@@ -25,9 +25,10 @@ class EGridDataset(Dataset):
             with open(in_fn, 'r') as fd:
                 all_examples = json.load(fd)
             print('Done Loading...')
-            self.examples = [ex for ex in all_examples if ex['split'] == split and len(ex['egrid']) > 0]
+            self.examples = [ex for ex in all_examples if ex['split'] == split]
         else:
             self.examples = egrids
+        self.examples = [ex for ex in self.examples if len(ex['egrid']) > 0]
         self.vocab = vocab
         self.k = k
 

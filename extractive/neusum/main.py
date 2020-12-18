@@ -25,7 +25,7 @@ from preprocess.constants import out_dir
 from utils import tens_to_np
 
 MAX_GEN_SUM_SENTS = 25
-MAX_GEN_SUM_TOK_CT = 165
+MAX_GEN_SUM_TOK_CT = 262
 
 
 class NeuSum(pl.LightningModule):

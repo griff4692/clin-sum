@@ -185,7 +185,7 @@ if __name__ == '__main__':
     eval_mode = args.eval_mode
     mini_str = '_mini' if args.mini else ''
     eval_str = '_eval' if args.eval_mode else ''
-    types = ['validation', 'train']
+    types = ['validation'] if args.eval_mode else ['validation', 'train']
     for type in types:
         print('Getting records for {} set'.format(type))
         type_df = get_records(split=type, mini=args.mini)
