@@ -129,6 +129,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+data_v2/
 data/
 lightning_logs/
 results/

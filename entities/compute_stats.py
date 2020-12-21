@@ -25,7 +25,7 @@ if __name__ == '__main__':
 
     df['in_target'] = df['target_count'].apply(lambda x: 1 if x > 0 else 0)
     source_ct_df = df[['source_count', 'in_target']].groupby('source_count', as_index=False)['in_target'].mean()
-    out_fn = 'data/source_counts.csv'
+    out_fn = 'data_v2/source_counts.csv'
     source_ct_df = source_ct_df.to_csv(out_fn, index=False)
 
     overall_source_ents = np.count_nonzero(df['source_count'])
@@ -60,7 +60,7 @@ if __name__ == '__main__':
         account_outputs['target_ent_count'].append(num_target_ents)
 
     account_df = pd.DataFrame(account_outputs)
-    out_fn = 'data/account_stats.csv'
+    out_fn = 'data_v2/account_stats.csv'
     account_df.to_csv(out_fn, index=False)
 
     cuis = df['cui'].unique().tolist()
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         tui_output['n'].append(len(tui_df))
 
     tui_df = pd.DataFrame(tui_output)
-    out_fn = 'data/tui_stats.csv'
+    out_fn = 'data_v2/tui_stats.csv'
     tui_df.to_csv(out_fn, index=False)
 
     sem_groups = cui_df['sem_group'].unique().tolist()
@@ -121,5 +121,5 @@ if __name__ == '__main__':
         sem_group_output['n'].append(len(sem_group_df))
 
     sem_group_df = pd.DataFrame(sem_group_output)
-    out_fn = 'data/sem_group_stats.csv'
+    out_fn = 'data_v2/sem_group_stats.csv'
     sem_group_df.to_csv(out_fn, index=False)

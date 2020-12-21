@@ -2,7 +2,7 @@ import os
 
 avro_fp = '/nlp/cdw/discovery_request_1342/notes_avro/all_docs_201406190000/'
 visit_fn = '/nlp/cdw/discovery_request_1342/structured/visits/visit_2004_2014.txt'
-out_dir = '/nlp/projects/clinsum'
+out_dir = '/nlp/projects/clinsum_v2'
 if not os.path.exists(out_dir):
     out_dir = os.path.expanduser('~' + out_dir)
 assert os.path.exists(out_dir)

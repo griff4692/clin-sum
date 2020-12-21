@@ -81,17 +81,14 @@ def join(mrn, valid_counter, invalid_counter, lock):
 
     notes_df = pd.read_csv(notes_fn)
 
-    # TODO start deprecate
     notes_df = notes_df.fillna(NULL_STR)
-    # TODO end deprecate
-    assert not notes_df.isnull().values.any()  # Any nan values should have been cast to N/A
-    note_dates = notes_df['timestamp'].apply(str_to_d).tolist()
+    note_dates = notes_df['created_time'].apply(str_to_d).tolist()
     notes_df['account'] = list(map(lambda x: get_visit_id(x, non_overlapping_visit_records), note_dates))
 
     # Needs to be associated with a visit, have content, and have a timestamp
     notes_df.drop_duplicates(subset=['note_id'], inplace=True)
-    notes_df['timestamp'] = notes_df['timestamp'].apply(str_to_dt)
-    notes_df.sort_values('timestamp', inplace=True)
+    notes_df['created_time'] = notes_df['created_time'].apply(str_to_dt)
+    notes_df.sort_values('created_time', inplace=True)
     notes_df.reset_index(inplace=True, drop=True)
     notes_n = notes_df.shape[0]
 
@@ -104,16 +101,17 @@ def join(mrn, valid_counter, invalid_counter, lock):
     for account in accounts:
         assert not account in [None, NULL_STR]
         note_account_df = notes_df[notes_df['account'] == account]
+        note_account_df.drop_duplicates(subset=['text'], keep='last', inplace=True)
         dsums = note_account_df[note_account_df['is_target']]
         n_dsums = dsums.shape[0]
         has_target = n_dsums >= 1
         has_source = False
-        dsum_timestamp = dsums['timestamp'].max() if has_target else None
+        dsum_timestamp = dsums['created_time'].max() if has_target else None
 
         if has_target:
             for x, note_row in note_account_df.iterrows():
                 note_row = note_row.to_dict()
-                is_pre_dsum = False if dsum_timestamp is None else note_row['timestamp'] < dsum_timestamp
+                is_pre_dsum = False if dsum_timestamp is None else note_row['created_time'] < dsum_timestamp
                 ntl = note_row['note_type'].lower()
                 tl = note_row['title'].lower()
                 dsum_related = 'discharge' in ntl or 'discharge' in tl

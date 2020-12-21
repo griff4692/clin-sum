@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import sys
 sys.path.insert(0, os.path.expanduser('~/clin-sum'))
@@ -47,6 +48,13 @@ def get_mrn_status_df(status_col):
     mrn_valid_idxs = mrn_status_df[status_col] == 1
     mrns = mrn_status_df.loc[mrn_valid_idxs]['mrn'].tolist()
     return mrn_status_df, mrn_valid_idxs, mrns
+
+
+def str_to_dt(str, trunc=False):
+    dt = datetime.strptime(str, '%Y-%m-%d-%H.%M.%S.%f')
+    if trunc:
+        return dt.replace(minute=0, second=0, microsecond=0)
+    return dt
 
 
 def update_mrn_status_df(mrn_status_df, status_arr, mrn_valid_idxs, col_name):
