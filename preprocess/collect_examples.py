@@ -8,17 +8,13 @@ from p_tqdm import p_uimap
 from constants import *
 from utils import *
 
-COLS = [
-    'mrn', 'account', 'source_str', 'target_str', 'spacy_source_toks', 'spacy_target_toks', 'spacy_source_tok_ct',
-    'spacy_target_tok_ct', 'coverage', 'density', 'compression', 'fragments', 'is_too_big'
-]
-
 
 def collect_examples(mrn):
     mrn_dir = os.path.join(out_dir, 'mrn', str(mrn))
     df = pd.read_csv(os.path.join(mrn_dir, 'examples.csv'))
+    cols = [col for col in list(df.columns) if col not in {'source_str', 'target_str'}]
     assert len(df) > 0
-    return df[COLS]
+    return df[cols]
 
 
 if __name__ == '__main__':

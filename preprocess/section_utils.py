@@ -42,7 +42,7 @@ irrelevant_sections = [
     r'patient', r'\bmh\b', r'\bsh\b', r'\bfh\b', r'assessment', r'handout', r'\bdispo', r'\bpe\b', r'\bimag',
     r'maintenance', r'measure', r'\bnote\b', r'\bvital', r'(on|at)? ?discharge', r'path(ology)?', r'authored',
     r'assistant', r'allerg', r'physician', r'surgeon', r'appointment', r'schedul', r'radiology', r'findings?', r'meds',
-    r'ros', r'review of system', 'a\/p', 'htn', 'signature'
+    r'ros', r'review of system', 'a\/p', 'htn', 'signature', r'stud(ies|y)', r'conclusions?', r'prn'
 ]
 
 
@@ -184,7 +184,7 @@ def pack_sentences(text, key_str, values):
 
 def sent_toks_from_html(text, convert_lower=True):
     return list(itertools.chain(*list(map(
-        lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower, extract_lr=False)))))
+        lambda x: x.split(' '), sents_from_html(text, convert_lower=convert_lower)))))
 
 
 def paragraph_toks_from_html(text):
@@ -244,35 +244,43 @@ def replace_paragraphs(text, new_paragraphs):
     return ' '.join(new_text)
 
 
-def sents_from_html(text, convert_lower=True, extract_lr=False):
-    if convert_lower:
-        text = text.lower()
+def remove_tags_from_sent(text):
     split_text = re.split(HTML_REGEX, text)
     is_tag = list(map(lambda x: re.search(HTML_REGEX, x) is not None, split_text))
-    sents, ranks = [], []
-    for i, str in enumerate(split_text):
-        str = str.strip()
-        if len(str) == 0:
+    final_text = []
+    for elem, tag in zip(split_text, is_tag):
+        elem = elem.strip()
+        if tag or len(elem) == 0:
             continue
-        is_sent_body = i > 0 and is_sent_tag(split_text[i - 1])
-        if not is_tag[i] and is_sent_body:
-            sents.append(str)
-            if extract_lr:
-                lr_val = float(split_text[i - 1].split('=')[-1].strip('<>'))
-                ranks.append(lr_val)
-    if extract_lr:
-        return sents, np.array(ranks)
-    return sents
+        final_text.append(elem)
+    return ' '.join(final_text)
+
+
+def sents_from_html(text, convert_lower=True):
+    if convert_lower:
+        text = text.lower()
+    sentences = re.findall(r'<s>(.+)<\/s>', text)
+    sentences_cleaned = list(map(remove_tags_from_sent, sentences))
+    return sentences_cleaned
+
+
+def _latest_note_id(text):
+    return re.findall(r'<d note_id=(\S+)', text)[-1]
 
 
 def resolve_course(text):
     open_tag = r'<c>'
     close_tag = r'</c>'
     courses = []
+    course_note_ids = []
     for match in re.finditer(open_tag, text):
         start_idx = match.start()
         end_idx = re.search(close_tag, text[start_idx:]).end() + start_idx
         courses.append(text[start_idx:end_idx])
+        course_note_ids.append(_latest_note_id(text[:start_idx]))
 
     course_lens = np.array([len(course) for course in courses])
-    return courses[course_lens.argmax()]
+    largest_course_idx = int(course_lens.argmax())
+    note_id = course_note_ids[largest_course_idx]
+    course_str = courses[largest_course_idx]
+    return '<d note_id={}> {} </d>'.format(note_id, course_str)

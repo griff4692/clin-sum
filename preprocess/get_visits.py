@@ -25,7 +25,6 @@ def resolve_multicol(arr):
 
 
 def get_inpatient_visits():
-    out_fn = os.path.join(out_dir, 'visits.csv')
     cols = ['mrn', 'empi', 'account', 'patient_class_code', 'admit_date', 'admit_source_code', 'admit_type_code',
             'admit_location', 'admit_medical_service', 'discharge_date', 'discharge_status_code',
             'discharge_medical_service', 'primary_time', 'event_code', 'location_code', 'room', 'bed', 'provider_id']
@@ -91,14 +90,10 @@ def get_inpatient_visits():
 
     print('Saving {} rows'.format(n4))
     condensed_df.sort_values(by=['mrn', 'admit_date_min'], inplace=True)
-
-    # Sample 1,000
-    condensed_df = condensed_df.sample(n=1000, replace=False)
-    condensed_df.to_csv(out_fn, index=False)
-
-    small = condensed_df['admit_date_min'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f'))
-    big = condensed_df['discharge_date_max'].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f'))
-    deltas = [big[i] - small[i] for i in range(len(small))]
+    deltas = condensed_df['discharge_date_max'].combine(
+        condensed_df['admit_date_min'],
+        lambda a, b: a - b
+    )
     days = [d.total_seconds() / 86400.0 for d in deltas]
 
     print('Length of stay in days...')

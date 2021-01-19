@@ -45,8 +45,8 @@ def get_extractive_fragments(mrn):
 
     frag_dicts = defaultdict(list)
     for example in examples_df.to_dict('records'):
-        source_toks = sent_toks_from_html(example['spacy_source_toks'], convert_lower=True)
-        target_toks = sent_toks_from_html(example['spacy_target_toks'], convert_lower=True)
+        source_toks = sent_toks_from_html(example['decorated_source'], convert_lower=True)
+        target_toks = sent_toks_from_html(example['decorated_target'], convert_lower=True)
         frag_obj = frags(source_toks, target_toks)
         for k, v in frag_obj.items():
             frag_dicts[k].append(v)

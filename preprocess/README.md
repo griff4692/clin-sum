@@ -7,5 +7,4 @@
 5. `tokenize_mrns`
 6. `extractive_fragments`
 7. `collect_examples`
-8. `get_entities`
 9. `gen_splits`

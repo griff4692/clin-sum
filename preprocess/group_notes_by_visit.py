@@ -72,7 +72,13 @@ def remove_overlapping(visit_records):
 def join(mrn, valid_counter, invalid_counter, lock):
     mrn_visit_record = visit_df[visit_df['mrn'] == mrn].to_dict('records')
     num_visits = len(mrn_visit_record)
-    assert num_visits > 0
+
+    # TODO remove this when running on full dataset
+    if num_visits == 0:
+        return 0
+
+    if num_visits == 0:
+        raise Exception('MRN={} has no valid visits.'.format(mrn))
 
     non_overlapping_visit_records = remove_overlapping(mrn_visit_record)
     mrn_dir = os.path.join(out_dir, 'mrn', mrn)
@@ -91,7 +97,6 @@ def join(mrn, valid_counter, invalid_counter, lock):
     notes_df.sort_values('created_time', inplace=True)
     notes_df.reset_index(inplace=True, drop=True)
     notes_n = notes_df.shape[0]
-
     assert notes_n > 0
 
     notes_df['is_target'] = notes_df['note_type'].combine(notes_df['title'], is_dsum)

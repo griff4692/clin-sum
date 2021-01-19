@@ -52,6 +52,7 @@ def has_relevant_title(title, nan_val):
     # return rel and not is_remove
     return not is_remove
 
+
 def save(mrn_rows, suffix):
     n = 0
     fn = None
