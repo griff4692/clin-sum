@@ -8,7 +8,7 @@ import pandas as pd
 from preprocess.constants import *
 
 
-def get_records(split='validation', mini=False):
+def get_records(split='validation', remove_big=True, mini=False):
     if mini:
         in_fn = os.path.join(out_dir, 'full_examples_small.csv')
     else:
@@ -16,6 +16,8 @@ def get_records(split='validation', mini=False):
     print('Loading full examples from {}'.format(in_fn))
     examples_df = pd.read_csv(in_fn)
     output_df = examples_df
+    if remove_big:
+        output_df = examples_df[~examples_df['is_too_big']]
     if not mini:
         if type(split) == str:
             output_df = examples_df[examples_df['split'] == split]

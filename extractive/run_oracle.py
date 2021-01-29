@@ -19,6 +19,9 @@ from preprocess.utils import get_mrn_status_df, get_records
 from evaluations.rouge import max_rouge_sent, max_rouge_set, prepare_str_for_rouge, top_rouge_sents
 
 
+_TARGET_TOK_CT = 262
+
+
 def stringify_list(a):
     return ','.join([str(x) for x in a])
 
@@ -27,7 +30,7 @@ def greedy_rel_rouge_recall(source_sents, target_sents):
     return greedy_rel_rouge(source_sents, target_sents, target_tok_ct=recall_target_n)
 
 
-def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=None):
+def greedy_rel_rouge(source_sents, target_sents, target_tok_ct=_TARGET_TOK_CT):
     target = ' '.join(target_sents)
     source_sents_dedup = list(dict.fromkeys(source_sents))
     sent_order, rouge_scores = max_rouge_set(target, source_sents_dedup, rouge_types, target_tok_ct=target_tok_ct)
@@ -51,7 +54,7 @@ def random_recall(source_sents, target_sents):
     return random(source_sents, target_sents, target_tok_ct=650)
 
 
-def random(source_sents, target_sents, target_tok_ct=100):
+def random(source_sents, target_sents, target_tok_ct=262):
     source_sents_dedup = list(dict.fromkeys(source_sents))
     sent_order = np.arange(len(source_sents_dedup))
     np.random.shuffle(sent_order)
@@ -77,7 +80,7 @@ def top_k_rouge_recall(source_sents, target_sents):
     return top_k_rouge(source_sents, target_sents, target_tok_ct=recall_target_n)
 
 
-def top_k_rouge(source_sents, target_sents, target_tok_ct=100):
+def top_k_rouge(source_sents, target_sents, target_tok_ct=_TARGET_TOK_CT):
     target = ' '.join(target_sents)
     source_sents_dedup = list(dict.fromkeys(source_sents))
     sent_order, rouge_scores = top_rouge_sents(target, source_sents_dedup, rouge_types)
@@ -149,7 +152,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Script to generate oracle predictions')
     parser.add_argument('--max_n', default=-1, type=int)
     parser.add_argument('--strategy', default='sent_align', choices=
-    ['sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall', 'random_recall'])
+    ['random', 'sent_align', 'greedy_rel', 'greedy_rel_recall', 'top_k', 'top_k_recall', 'random_recall'])
     parser.add_argument('--rouge_types', default='rouge1,rouge2')
     parser.add_argument('--recall_target_n', type=int, default=650)
     parser.add_argument('--custom_path', default=None)
@@ -178,6 +181,8 @@ if __name__ == '__main__':
         summarizer = top_k_rouge_recall
     elif args.strategy == 'random_recall':
         summarizer = random_recall
+    elif args.strategy == 'random':
+        summarizer = random
 
     if args.max_n > 0:
         np.random.seed(1992)

@@ -1,16 +1,13 @@
 from datetime import datetime
-from functools import partial
 import os
-from multiprocessing import Manager, Pool, Value
 import re
-from time import time, sleep
 import warnings
 warnings.filterwarnings('error')
 
 import numpy as np
 import pandas as pd
 pd.options.mode.chained_assignment = None
-from tqdm import tqdm
+from p_tqdm import p_uimap
 
 from constants import *
 from utils import *
@@ -69,7 +66,7 @@ def remove_overlapping(visit_records):
     return vr
 
 
-def join(mrn, valid_counter, invalid_counter, lock):
+def join(mrn):
     mrn_visit_record = visit_df[visit_df['mrn'] == mrn].to_dict('records')
     num_visits = len(mrn_visit_record)
     assert num_visits > 0
@@ -80,11 +77,7 @@ def join(mrn, valid_counter, invalid_counter, lock):
     valid_fn = os.path.join(mrn_dir, 'valid_accounts.csv')
 
     notes_df = pd.read_csv(notes_fn)
-
-    # TODO start deprecate
-    notes_df = notes_df.fillna(NULL_STR)
-    # TODO end deprecate
-    assert not notes_df.isnull().values.any()  # Any nan values should have been cast to N/A
+    notes_df.fillna(NULL_STR, inplace=True)
     note_dates = notes_df['timestamp'].apply(str_to_d).tolist()
     notes_df['account'] = list(map(lambda x: get_visit_id(x, non_overlapping_visit_records), note_dates))
 
@@ -122,13 +115,6 @@ def join(mrn, valid_counter, invalid_counter, lock):
         is_valid = has_source and has_target
         if is_valid:
             valid_accounts.append(account)
-            with lock:
-                valid_counter.value += 1
-                if valid_counter.value % 10000 == 0:
-                    print('Valid visits={}.  Invalid visits={}'.format(valid_counter.value, invalid_counter.value))
-        else:
-            with lock:
-                invalid_counter.value += 1
 
     notes_df['is_source'] = is_source
     notes_df.to_csv(notes_fn, index=False)
@@ -151,21 +137,6 @@ if __name__ == '__main__':
     mrn_status_df, mrn_valid_idxs, mrns = get_mrn_status_df('note_status')
     n = len(mrns)
     print('Processing {} mrns'.format(n))
-    start_time = time()
-    with Manager() as manager:
-        valid_counter = manager.Value('i', 0)
-        invalid_counter = manager.Value('i', 0)
-        lock = manager.Lock()
-        pool = Pool()  # By default pool will size depending on cores available
-        statuses = pool.map(
-            partial(join, valid_counter=valid_counter, invalid_counter=invalid_counter, lock=lock),
-            mrns
-        )
-        pool.close()
-        pool.join()
 
-        print('{} visits are valid (have >= 1 dsum and >= 1 preceeding documents).'.format(valid_counter.value))
-        print('{} visits are invalid (have 0 dsum or 0 preceeding documents).'.format(invalid_counter.value))
-
+    statuses = list(p_uimap(join, mrns))
     update_mrn_status_df(mrn_status_df, statuses, mrn_valid_idxs, 'valid_account')
-    duration(start_time)
