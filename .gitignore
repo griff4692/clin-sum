@@ -137,3 +137,4 @@ weights/
 wandb/
 preprocess/stats
 data_v2/
+stats/

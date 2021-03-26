@@ -132,7 +132,7 @@ def max_rouge_sent(target, source_sents, rouge_types, return_score=False, source
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('ROUGE Scorer')
-    parser.add_argument('--experiment', default='lr')
+    parser.add_argument('--experiment', required=True)
     parser.add_argument('-rougeL', default=False, action='store_true')
 
     args = parser.parse_args()
